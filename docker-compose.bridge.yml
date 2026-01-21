@@ -1,0 +1,21 @@
+# Alternative docker-compose for bridge network mode
+# Use this if host network mode is not desired
+# Note: Latency measurements may be slightly affected
+
+services:
+  outpost:
+    build: .
+    container_name: outpost
+    ports:
+      - "3000:3000"
+    volumes:
+      - outpost_data:/data
+    environment:
+      - OUTPOST_PORT=3000
+      - OUTPOST_RETENTION_DAYS=90
+    cap_add:
+      - NET_RAW  # Required for ICMP ping
+    restart: unless-stopped
+
+volumes:
+  outpost_data:

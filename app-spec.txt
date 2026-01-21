@@ -1,0 +1,676 @@
+================================================================================
+                              OUTPOST SPECIFICATION
+                     Docker-based Home Network Health Monitor
+                                   Version 1.0
+================================================================================
+
+1. PROJECT OVERVIEW
+================================================================================
+
+1.1 Purpose
+-----------
+Outpost is a self-hosted network health monitoring solution designed for home
+network enthusiasts. It provides continuous monitoring of internet connectivity,
+speed, latency, and DNS health through an easy-to-deploy Docker container.
+
+1.2 Goals
+---------
+- Provide visibility into home network performance over time
+- Track internet outages with precise start/end times
+- Monitor speed test results to verify ISP performance
+- Detect DNS resolution issues
+- Present data through an intuitive web dashboard
+- Require minimal setup and maintenance
+
+1.3 Target Users
+----------------
+- Home network enthusiasts
+- Users wanting to verify ISP performance claims
+- Anyone needing historical data on network reliability
+- Self-hosters preferring local-only solutions
+
+1.4 Non-Goals (v1)
+------------------
+- Active alerting/notifications (designed for future implementation)
+- Multi-site monitoring
+- Network device monitoring (routers, switches)
+- Bandwidth usage tracking
+
+
+2. CORE MONITORING FEATURES
+================================================================================
+
+2.1 Speedtest Monitoring
+------------------------
+Periodic measurement of internet connection performance.
+
+Metrics collected:
+- Download speed (Mbps)
+- Upload speed (Mbps)
+- Ping/latency to speedtest server (ms)
+- Jitter (ms)
+- Speedtest server used
+- Test timestamp
+
+Default interval: Every 1 hour
+Configurable range: 1 hour to 24 hours
+
+Implementation: Use speedtest-cli or librespeed for measurements.
+
+2.2 Latency Monitoring (ICMP Ping)
+----------------------------------
+Continuous ping monitoring to configurable destinations.
+
+Metrics collected:
+- Round-trip time (ms)
+- Packet loss percentage
+- Min/avg/max latency over sample period
+- Target host
+- Timestamp
+
+Default targets:
+- 8.8.8.8 (Google DNS)
+- 1.1.1.1 (Cloudflare DNS)
+- Gateway/router IP (auto-detected)
+
+Default interval: Every 1 minute
+Configurable range: 30 seconds to 15 minutes
+
+2.3 DNS Health Monitoring
+-------------------------
+Monitor DNS resolution performance and reliability.
+
+Metrics collected:
+- Query resolution time (ms)
+- Resolution success/failure
+- DNS server tested
+- Query domain used
+- Timestamp
+
+Default DNS servers to test:
+- System configured DNS
+- 8.8.8.8 (Google)
+- 1.1.1.1 (Cloudflare)
+
+Test domains: google.com, cloudflare.com (configurable)
+
+Default interval: Every 5 minutes
+Configurable range: 1 minute to 30 minutes
+
+2.4 Outage Tracking
+-------------------
+Automatic detection and logging of connectivity outages.
+
+Data recorded:
+- Outage start time
+- Outage end time
+- Duration
+- Affected services (ping/dns/speedtest)
+- Recovery confirmation
+
+Outage detection criteria:
+- 3 consecutive ping failures to all targets
+- OR complete DNS resolution failure
+- OR speedtest failure (if occurring during scheduled test)
+
+Outage resolution criteria:
+- 2 consecutive successful pings to any target
+- AND successful DNS resolution
+
+
+3. TECHNICAL ARCHITECTURE
+================================================================================
+
+3.1 Deployment Model
+--------------------
+Single Docker container containing all components:
+- Monitoring service (backend)
+- Web interface (frontend)
+- Data storage (file-based)
+
+Container requirements:
+- Base image: Node.js 20 Alpine
+- Exposed port: 3000 (configurable)
+- Volume mount: /data for persistent storage
+- Network mode: Host (recommended for accurate latency measurements)
+                or Bridge (with limitations noted)
+
+3.2 Backend Architecture
+------------------------
+Runtime: Node.js 20+
+Framework: Fastify (chosen for performance)
+
+Components:
+┌─────────────────────────────────────────────────────────────┐
+│                      Fastify Server                         │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
+│  │  REST API   │  │   Static    │  │   WebSocket (opt)   │ │
+│  │  Endpoints  │  │   Files     │  │   Live Updates      │ │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘ │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
+│  │  Scheduler  │  │   Monitor   │  │   Data Manager      │ │
+│  │  (node-cron)│  │   Workers   │  │   (Storage I/O)     │ │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+
+Key backend modules:
+- scheduler.js      - Cron-based job scheduling for all monitors
+- monitors/
+  - ping.js         - ICMP ping implementation
+  - speedtest.js    - Speedtest execution wrapper
+  - dns.js          - DNS query monitoring
+  - outage.js       - Outage detection logic
+- storage/
+  - timeseries.js   - Time series data read/write
+  - retention.js    - Data cleanup based on retention policy
+- api/
+  - metrics.js      - Endpoints for retrieving metrics
+  - config.js       - Configuration management endpoints
+  - health.js       - Container health check endpoint
+
+3.3 Frontend Architecture
+-------------------------
+Framework: Next.js 14+ with App Router
+UI Library: React 19
+Styling: Tailwind CSS
+Charts: Chart.js with react-chartjs-2 (or Recharts)
+
+Directory structure:
+app/
+├── layout.tsx              # Root layout with navigation
+├── page.tsx                # Dashboard (default view)
+├── latency/
+│   └── page.tsx            # Latency details view
+├── speedtest/
+│   └── page.tsx            # Speedtest history view
+├── dns/
+│   └── page.tsx            # DNS health view
+├── outages/
+│   └── page.tsx            # Outage timeline view
+├── settings/
+│   └── page.tsx            # Configuration panel
+└── api/                    # API route handlers (proxy to backend)
+
+Component library:
+components/
+├── dashboard/
+│   ├── StatusCard.tsx      # Current status indicator
+│   ├── MetricCard.tsx      # Single metric display
+│   └── QuickStats.tsx      # Summary statistics
+├── charts/
+│   ├── TimeSeriesChart.tsx # Reusable time series chart
+│   ├── SpeedChart.tsx      # Speed test specific chart
+│   └── LatencyChart.tsx    # Latency visualization
+├── outages/
+│   ├── OutageTimeline.tsx  # Visual outage timeline
+│   └── OutageList.tsx      # Tabular outage history
+└── ui/
+    ├── Card.tsx            # Base card component
+    ├── Select.tsx          # Time range selector
+    └── Navigation.tsx      # Main navigation
+
+3.4 Data Flow
+-------------
+1. Scheduler triggers monitor at configured interval
+2. Monitor executes check and returns result
+3. Result written to time series storage
+4. Outage detector analyzes result for outage state changes
+5. Frontend polls API (or receives WebSocket push) for updates
+6. Charts render with requested time range data
+
+
+4. WEB INTERFACE DESIGN
+================================================================================
+
+4.1 Dashboard (Home)
+--------------------
+Primary view showing current network health at a glance.
+
+Layout:
+┌─────────────────────────────────────────────────────────────┐
+│  OUTPOST                          [24h] [7d] [30d] [90d]   │
+├─────────────────────────────────────────────────────────────┤
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐│
+│  │   STATUS     │ │   UPTIME     │ │    LAST OUTAGE       ││
+│  │   ● Online   │ │   99.7%      │ │    2 days ago        ││
+│  │              │ │   (30 days)  │ │    Duration: 4m      ││
+│  └──────────────┘ └──────────────┘ └──────────────────────┘│
+├─────────────────────────────────────────────────────────────┤
+│  SPEED (Last Test: 2 hours ago)                            │
+│  ┌────────────────────────────────────────────────────────┐│
+│  │  ↓ 485 Mbps    ↑ 42 Mbps    ◷ 12ms                    ││
+│  │  [=======||||||||||||||||||||||||||||||||||||       ]  ││
+│  └────────────────────────────────────────────────────────┘│
+├─────────────────────────────────────────────────────────────┤
+│  LATENCY (1 minute avg)                                    │
+│  ┌────────────────────────────────────────────────────────┐│
+│  │  ▁▂▃▂▁▂▃▄▃▂▁▂▁▂▃▂▁▂▃▂▁▂▃▂▁▂▃▂▁▂▃▂▁▂▃▂▁▂▃▂▁▂▃▂▁▂▃▂▁▂   ││
+│  │  8.8.8.8: 12ms   1.1.1.1: 8ms   Gateway: 1ms          ││
+│  └────────────────────────────────────────────────────────┘│
+├─────────────────────────────────────────────────────────────┤
+│  DNS HEALTH                                                │
+│  ┌────────────────────────────────────────────────────────┐│
+│  │  ● Google DNS: 24ms  ● Cloudflare: 18ms  ● System: 5ms││
+│  └────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────┘
+
+4.2 Speedtest View
+------------------
+Detailed speed test history and trends.
+
+Features:
+- Line chart showing download/upload speeds over time
+- Individual test results in expandable list
+- Statistics: average, min, max, standard deviation
+- Comparison to ISP advertised speeds (if configured)
+
+4.3 Latency View
+----------------
+Detailed latency analysis per target.
+
+Features:
+- Stacked or multi-line chart for all targets
+- Packet loss indicators
+- Latency distribution histogram
+- Per-target statistics
+
+4.4 DNS View
+------------
+DNS health and performance details.
+
+Features:
+- Resolution time trends per server
+- Failure rate statistics
+- Query response time comparison
+
+4.5 Outages View
+----------------
+Complete outage history and timeline.
+
+Features:
+- Visual timeline showing outages
+- Sortable/filterable outage table
+- Outage detail expansion (affected services, duration)
+- Export capability (CSV)
+
+4.6 Settings View
+-----------------
+Configuration management interface.
+
+Sections:
+- Monitor intervals (per check type)
+- Ping targets (add/remove/edit)
+- DNS servers (add/remove/edit)
+- Speedtest configuration
+- Data retention period
+- Display preferences
+
+
+5. CONFIGURATION OPTIONS
+================================================================================
+
+5.1 Configuration File
+----------------------
+Location: /data/config.json (inside container)
+Format: JSON
+
+Default configuration:
+
+{
+  "monitors": {
+    "ping": {
+      "enabled": true,
+      "intervalSeconds": 60,
+      "targets": [
+        { "host": "8.8.8.8", "name": "Google DNS" },
+        { "host": "1.1.1.1", "name": "Cloudflare DNS" }
+      ],
+      "timeout": 5000,
+      "packetCount": 3
+    },
+    "speedtest": {
+      "enabled": true,
+      "intervalHours": 4,
+      "serverId": null
+    },
+    "dns": {
+      "enabled": true,
+      "intervalSeconds": 300,
+      "servers": [
+        { "address": "8.8.8.8", "name": "Google" },
+        { "address": "1.1.1.1", "name": "Cloudflare" }
+      ],
+      "testDomains": ["google.com", "cloudflare.com"],
+      "timeout": 5000
+    }
+  },
+  "outageDetection": {
+    "pingFailuresForOutage": 3,
+    "pingSuccessesForRecovery": 2
+  },
+  "retention": {
+    "days": 90
+  },
+  "server": {
+    "port": 3000
+  }
+}
+
+5.2 Environment Variables
+-------------------------
+Override configuration via environment variables:
+
+OUTPOST_PORT=3000                    # Server port
+OUTPOST_DATA_DIR=/data               # Data directory path
+OUTPOST_PING_INTERVAL=60             # Ping interval in seconds
+OUTPOST_SPEEDTEST_INTERVAL=4         # Speedtest interval in hours
+OUTPOST_DNS_INTERVAL=300             # DNS check interval in seconds
+OUTPOST_RETENTION_DAYS=90            # Data retention period
+
+5.3 Configuration Constraints
+-----------------------------
+Ping interval: 30 - 900 seconds (30s to 15min)
+Speedtest interval: 1 - 24 hours
+DNS interval: 60 - 1800 seconds (1min to 30min)
+Retention: 7 - 365 days
+Max ping targets: 10
+Max DNS servers: 5
+
+
+6. DATA STORAGE FORMAT
+================================================================================
+
+6.1 Storage Strategy
+--------------------
+Primary: SQLite database (single file)
+Rationale: Better query performance than JSON Lines for time range queries,
+           single file simplicity, no server process needed
+
+File location: /data/outpost.db
+
+6.2 Database Schema
+-------------------
+
+-- Ping measurements
+CREATE TABLE ping_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp INTEGER NOT NULL,           -- Unix timestamp (ms)
+    target TEXT NOT NULL,                 -- Target host
+    target_name TEXT,                     -- Friendly name
+    rtt_min REAL,                         -- Min RTT (ms)
+    rtt_avg REAL,                         -- Avg RTT (ms)
+    rtt_max REAL,                         -- Max RTT (ms)
+    packet_loss REAL,                     -- Loss percentage (0-100)
+    success INTEGER NOT NULL              -- 1=success, 0=failure
+);
+CREATE INDEX idx_ping_timestamp ON ping_results(timestamp);
+CREATE INDEX idx_ping_target ON ping_results(target, timestamp);
+
+-- Speedtest results
+CREATE TABLE speedtest_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp INTEGER NOT NULL,           -- Unix timestamp (ms)
+    download_mbps REAL,                   -- Download speed
+    upload_mbps REAL,                     -- Upload speed
+    ping_ms REAL,                         -- Latency to server
+    jitter_ms REAL,                       -- Jitter
+    server_id TEXT,                       -- Speedtest server ID
+    server_name TEXT,                     -- Server name
+    success INTEGER NOT NULL              -- 1=success, 0=failure
+);
+CREATE INDEX idx_speedtest_timestamp ON speedtest_results(timestamp);
+
+-- DNS query results
+CREATE TABLE dns_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp INTEGER NOT NULL,           -- Unix timestamp (ms)
+    server TEXT NOT NULL,                 -- DNS server address
+    server_name TEXT,                     -- Friendly name
+    query_domain TEXT NOT NULL,           -- Domain queried
+    response_time_ms REAL,                -- Query time
+    success INTEGER NOT NULL              -- 1=success, 0=failure
+);
+CREATE INDEX idx_dns_timestamp ON dns_results(timestamp);
+CREATE INDEX idx_dns_server ON dns_results(server, timestamp);
+
+-- Outage records
+CREATE TABLE outages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    start_time INTEGER NOT NULL,          -- Unix timestamp (ms)
+    end_time INTEGER,                     -- NULL if ongoing
+    duration_seconds INTEGER,             -- Calculated on close
+    affected_services TEXT,               -- JSON array: ["ping","dns"]
+    notes TEXT                            -- Optional notes
+);
+CREATE INDEX idx_outages_start ON outages(start_time);
+
+-- Configuration (stored in DB for atomic updates)
+CREATE TABLE config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,                  -- JSON value
+    updated_at INTEGER NOT NULL
+);
+
+6.3 Data Retention
+------------------
+Retention cleanup runs daily at 03:00 local time.
+
+Cleanup process:
+1. Calculate cutoff timestamp (now - retention_days)
+2. DELETE FROM ping_results WHERE timestamp < cutoff
+3. DELETE FROM speedtest_results WHERE timestamp < cutoff
+4. DELETE FROM dns_results WHERE timestamp < cutoff
+5. Outages are retained indefinitely (minimal storage impact)
+6. Run VACUUM to reclaim space (weekly)
+
+6.4 Backup Considerations
+-------------------------
+Single file backup: Copy /data/outpost.db
+Recommended: Stop container or use SQLite backup API for consistency
+
+
+7. API SPECIFICATION
+================================================================================
+
+7.1 Metrics Endpoints
+---------------------
+
+GET /api/ping
+  Query params:
+    - start: Unix timestamp (ms), default: 24h ago
+    - end: Unix timestamp (ms), default: now
+    - target: Filter by target (optional)
+  Response: Array of ping results
+
+GET /api/ping/latest
+  Response: Most recent ping result per target
+
+GET /api/speedtest
+  Query params:
+    - start: Unix timestamp (ms)
+    - end: Unix timestamp (ms)
+  Response: Array of speedtest results
+
+GET /api/speedtest/latest
+  Response: Most recent speedtest result
+
+GET /api/dns
+  Query params:
+    - start: Unix timestamp (ms)
+    - end: Unix timestamp (ms)
+    - server: Filter by server (optional)
+  Response: Array of DNS results
+
+GET /api/outages
+  Query params:
+    - start: Unix timestamp (ms)
+    - end: Unix timestamp (ms)
+    - status: "active" | "resolved" | "all" (default: all)
+  Response: Array of outage records
+
+GET /api/stats
+  Query params:
+    - period: "24h" | "7d" | "30d" | "90d"
+  Response: Aggregated statistics for period
+
+7.2 Configuration Endpoints
+---------------------------
+
+GET /api/config
+  Response: Current configuration object
+
+PATCH /api/config
+  Body: Partial configuration to merge
+  Response: Updated configuration
+
+POST /api/config/reset
+  Response: Configuration reset to defaults
+
+7.3 Action Endpoints
+--------------------
+
+POST /api/speedtest/run
+  Trigger immediate speedtest
+  Response: { "status": "started", "id": "<job-id>" }
+
+GET /api/speedtest/run/:id
+  Check status of triggered speedtest
+  Response: { "status": "running" | "complete", "result": {...} }
+
+7.4 Health Endpoint
+-------------------
+
+GET /api/health
+  Response: { "status": "ok", "uptime": 123456, "version": "1.0.0" }
+
+
+8. DOCKER DEPLOYMENT
+================================================================================
+
+8.1 Dockerfile
+--------------
+FROM node:20-alpine
+
+# Install dependencies for speedtest and ping
+RUN apk add --no-cache iputils speedtest-cli
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Copy application
+COPY . .
+
+# Build frontend
+RUN npm run build
+
+# Create data directory
+RUN mkdir -p /data
+
+EXPOSE 3000
+
+ENV NODE_ENV=production
+ENV OUTPOST_DATA_DIR=/data
+
+CMD ["node", "server.js"]
+
+8.2 Docker Compose Example
+--------------------------
+version: "3.8"
+
+services:
+  outpost:
+    image: outpost:latest
+    container_name: outpost
+    network_mode: host          # Recommended for accurate measurements
+    volumes:
+      - outpost_data:/data
+    environment:
+      - OUTPOST_PORT=3000
+      - OUTPOST_RETENTION_DAYS=90
+    restart: unless-stopped
+
+volumes:
+  outpost_data:
+
+8.3 Alternative (Bridge Network)
+--------------------------------
+services:
+  outpost:
+    image: outpost:latest
+    container_name: outpost
+    ports:
+      - "3000:3000"
+    volumes:
+      - outpost_data:/data
+    cap_add:
+      - NET_RAW              # Required for ICMP ping
+    restart: unless-stopped
+
+Note: Bridge network mode may affect latency measurements slightly.
+
+
+9. ALERTING HOOKS (Future Implementation)
+================================================================================
+
+9.1 Design for v2
+-----------------
+The architecture supports future alerting through a hook system.
+
+Planned hook points:
+- onOutageStart(outage)
+- onOutageEnd(outage)
+- onSpeedtestComplete(result)
+- onThresholdExceeded(metric, value, threshold)
+
+9.2 Notification Channels (Future)
+----------------------------------
+- Webhook (POST to configurable URL)
+- Email (SMTP configuration)
+- Pushover
+- Telegram
+- Discord
+
+9.3 Alert Rules (Future)
+------------------------
+- Speed below threshold for X consecutive tests
+- Latency above threshold for X minutes
+- Packet loss above threshold
+- Outage duration exceeds X minutes
+
+
+10. DEVELOPMENT ROADMAP
+================================================================================
+
+10.1 Version 1.0 (Initial Release)
+----------------------------------
+- Core monitoring (ping, speedtest, DNS)
+- Outage detection and tracking
+- Web dashboard with charts
+- Configuration management
+- Data retention
+- Docker deployment
+
+10.2 Version 1.1 (Planned)
+--------------------------
+- Data export (CSV, JSON)
+- Dashboard customization
+- Additional chart types
+- Performance optimizations
+
+10.3 Version 2.0 (Future)
+-------------------------
+- Webhook notifications
+- Email alerts
+- Alert rules engine
+- Additional monitors (HTTP endpoint, certificate expiry)
+- Multi-language support
+
+
+================================================================================
+                              END OF SPECIFICATION
+================================================================================

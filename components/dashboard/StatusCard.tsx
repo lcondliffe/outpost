@@ -1,5 +1,8 @@
 'use client';
 
+import { Wifi, Clock, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import Card from '@/components/ui/Card';
+
 interface StatusCardProps {
   inOutage: boolean;
   lastOutage?: {
@@ -28,42 +31,65 @@ export default function StatusCard({ inOutage, lastOutage }: StatusCardProps) {
   };
 
   return (
-    <div className="grid grid-cols-3 gap-4">
-      <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
-        <div className="text-sm text-gray-400 uppercase tracking-wide mb-2">Status</div>
-        <div className="flex items-center space-x-2">
-          <span
-            className={`w-3 h-3 rounded-full ${
-              inOutage ? 'bg-red-500 animate-pulse' : 'bg-green-500'
-            }`}
-          />
-          <span className="text-xl font-semibold">
-            {inOutage ? 'Outage' : 'Online'}
-          </span>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <Card className="relative overflow-hidden">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-400">Network Status</p>
+            <h3 className="text-2xl font-bold mt-2 flex items-center space-x-2">
+              <span className={inOutage ? 'text-red-400' : 'text-emerald-400'}>
+                {inOutage ? 'Outage' : 'Online'}
+              </span>
+            </h3>
+          </div>
+          <div className={`p-3 rounded-xl ${inOutage ? 'bg-red-500/10' : 'bg-emerald-500/10'}`}>
+            {inOutage ? (
+              <AlertTriangle className="w-6 h-6 text-red-400" />
+            ) : (
+              <Wifi className="w-6 h-6 text-emerald-400" />
+            )}
+          </div>
         </div>
-      </div>
-
-      <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
-        <div className="text-sm text-gray-400 uppercase tracking-wide mb-2">Uptime</div>
-        <div className="text-xl font-semibold">--</div>
-        <div className="text-sm text-gray-500">(calculating)</div>
-      </div>
-
-      <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
-        <div className="text-sm text-gray-400 uppercase tracking-wide mb-2">Last Outage</div>
-        {lastOutage ? (
-          <>
-            <div className="text-xl font-semibold">
-              {formatRelativeTime(lastOutage.endTime)}
-            </div>
-            <div className="text-sm text-gray-500">
-              Duration: {formatDuration(lastOutage.durationSeconds)}
-            </div>
-          </>
-        ) : (
-          <div className="text-xl font-semibold text-gray-500">None recorded</div>
+        {!inOutage && (
+          <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500/50 to-transparent" />
         )}
-      </div>
+      </Card>
+
+      <Card>
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-400">Uptime</p>
+            <h3 className="text-2xl font-bold mt-2 text-white">--</h3>
+            <p className="text-xs text-gray-500 mt-1">Calculating...</p>
+          </div>
+          <div className="p-3 rounded-xl bg-blue-500/10">
+            <Clock className="w-6 h-6 text-blue-400" />
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-400">Last Incident</p>
+            {lastOutage ? (
+              <>
+                <h3 className="text-2xl font-bold mt-2 text-white">
+                  {formatRelativeTime(lastOutage.endTime)}
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Duration: {formatDuration(lastOutage.durationSeconds)}
+                </p>
+              </>
+            ) : (
+              <h3 className="text-xl font-bold mt-2 text-gray-500">None recorded</h3>
+            )}
+          </div>
+          <div className="p-3 rounded-xl bg-amber-500/10">
+            <CheckCircle2 className="w-6 h-6 text-amber-400" />
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }

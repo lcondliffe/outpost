@@ -1,5 +1,7 @@
 'use client';
 
+import { cn } from '@/lib/utils';
+
 interface TimeRangeSelectProps {
   value: string;
   onChange: (value: string) => void;
@@ -14,16 +16,17 @@ const ranges = [
 
 export default function TimeRangeSelect({ value, onChange }: TimeRangeSelectProps) {
   return (
-    <div className="flex space-x-1 bg-gray-800 rounded-lg p-1">
+    <div className="flex bg-white/5 rounded-lg p-1 border border-white/5">
       {ranges.map((range) => (
         <button
           key={range.value}
           onClick={() => onChange(range.value)}
-          className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+          className={cn(
+            'px-3 py-1 text-xs font-medium rounded-md transition-all',
             value === range.value
-              ? 'bg-blue-600 text-white'
-              : 'text-gray-400 hover:text-white'
-          }`}
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-gray-400 hover:text-white hover:bg-white/5'
+          )}
         >
           {range.label}
         </button>

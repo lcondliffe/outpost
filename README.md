@@ -12,6 +12,10 @@ A Docker-based network health monitoring solution that tracks internet connectiv
 - **Data Retention**: Configurable retention period (default: 90 days)
 - **SQLite Storage**: Single-file database, no external dependencies
 
+## Screenshot
+
+![Outpost Dashboard](docs/dashboard.png)
+
 ## Quick Start
 
 ### Using Docker Compose (Recommended)

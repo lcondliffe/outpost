@@ -1,0 +1,151 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'  # Trigger on version tags (v1.0.0, v2.1.3, etc.)
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Determine semantic version
+  version:
+    name: Determine Version
+    runs-on: ubuntu-latest
+    outputs:
+      semVer: ${{ steps.set-version.outputs.semVer }}
+      major: ${{ steps.set-version.outputs.major }}
+      minor: ${{ steps.set-version.outputs.minor }}
+      patch: ${{ steps.set-version.outputs.patch }}
+      preReleaseTag: ${{ steps.set-version.outputs.preReleaseTag }}
+      fullSemVer: ${{ steps.set-version.outputs.fullSemVer }}
+      isTag: ${{ steps.set-version.outputs.isTag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install GitVersion
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: gittools/actions/gitversion/setup@v3.2.1
+        with:
+          versionSpec: '6.x'
+
+      - name: Determine Version (GitVersion)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v3.2.1
+        with:
+          useConfigFile: true
+          configFilePath: GitVersion.yml
+
+      - name: Set version outputs
+        id: set-version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Extract version from tag (remove 'v' prefix if present)
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG#v}"
+
+            # Parse semver components
+            MAJOR=$(echo "$VERSION" | cut -d. -f1)
+            MINOR=$(echo "$VERSION" | cut -d. -f2)
+            PATCH=$(echo "$VERSION" | cut -d. -f3 | cut -d- -f1)
+            PRERELEASE=$(echo "$VERSION" | grep -oP '(?<=-)[^+]+' || echo "")
+
+            echo "semVer=$VERSION" >> $GITHUB_OUTPUT
+            echo "fullSemVer=$VERSION" >> $GITHUB_OUTPUT
+            echo "major=$MAJOR" >> $GITHUB_OUTPUT
+            echo "minor=$MINOR" >> $GITHUB_OUTPUT
+            echo "patch=$PATCH" >> $GITHUB_OUTPUT
+            echo "preReleaseTag=$PRERELEASE" >> $GITHUB_OUTPUT
+            echo "isTag=true" >> $GITHUB_OUTPUT
+
+            echo "Using git tag version: $VERSION"
+          else
+            echo "semVer=${{ steps.gitversion.outputs.semVer }}" >> $GITHUB_OUTPUT
+            echo "fullSemVer=${{ steps.gitversion.outputs.fullSemVer }}" >> $GITHUB_OUTPUT
+            echo "major=${{ steps.gitversion.outputs.major }}" >> $GITHUB_OUTPUT
+            echo "minor=${{ steps.gitversion.outputs.minor }}" >> $GITHUB_OUTPUT
+            echo "patch=${{ steps.gitversion.outputs.patch }}" >> $GITHUB_OUTPUT
+            echo "preReleaseTag=${{ steps.gitversion.outputs.preReleaseTag }}" >> $GITHUB_OUTPUT
+            echo "isTag=false" >> $GITHUB_OUTPUT
+
+            echo "Using GitVersion: ${{ steps.gitversion.outputs.semVer }}"
+          fi
+
+  # Code quality checks
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+  # Build and push container image
+  build-and-push:
+    name: Build & Push Container
+    runs-on: ubuntu-latest
+    needs: [version, lint]
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      version: ${{ needs.version.outputs.semVer }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.version.outputs.semVer }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.semVer }}
+            type=semver,pattern={{major}},value=${{ needs.version.outputs.semVer }}
+            type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -5,13 +5,20 @@ import Card from '@/components/ui/Card';
 
 interface StatusCardProps {
   inOutage: boolean;
+  uptime?: string;
+  uptimePeriod?: string;
   lastOutage?: {
     endTime: number;
     durationSeconds: number;
   } | null;
 }
 
-export default function StatusCard({ inOutage, lastOutage }: StatusCardProps) {
+export default function StatusCard({
+  inOutage,
+  lastOutage,
+  uptime = '--',
+  uptimePeriod = '24h',
+}: StatusCardProps) {
   const formatRelativeTime = (timestamp: number) => {
     const diff = Date.now() - timestamp;
     const seconds = Math.floor(diff / 1000);
@@ -59,8 +66,10 @@ export default function StatusCard({ inOutage, lastOutage }: StatusCardProps) {
         <div className="flex items-start justify-between">
           <div>
             <p className="text-sm font-medium text-gray-400">Uptime</p>
-            <h3 className="text-2xl font-bold mt-2 text-white">--</h3>
-            <p className="text-xs text-gray-500 mt-1">Calculating...</p>
+            <h3 className="text-2xl font-bold mt-2 text-white">{uptime === '--' ? '--' : `${uptime}%`}</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              {uptime === '--' ? 'Calculating...' : `Last ${uptimePeriod}`}
+            </p>
           </div>
           <div className="p-3 rounded-xl bg-blue-500/10">
             <Clock className="w-6 h-6 text-blue-400" />

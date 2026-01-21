@@ -15,6 +15,7 @@ import {
   DnsResult,
   Outage,
   OutageStatus,
+  Stats,
 } from '@/lib/api';
 
 export default function Dashboard() {
@@ -25,6 +26,7 @@ export default function Dashboard() {
   const [latestDns, setLatestDns] = useState<DnsResult[]>([]);
   const [pingHistory, setPingHistory] = useState<PingResult[]>([]);
   const [recentOutages, setRecentOutages] = useState<Outage[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [isRunningSpeedtest, setIsRunningSpeedtest] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,13 +35,14 @@ export default function Dashboard() {
       const now = Date.now();
       const start = now - getPeriodMs(timeRange);
 
-      const [statusData, pings, speedtest, dns, history, outages] = await Promise.all([
+      const [statusData, pings, speedtest, dns, history, outages, statsData] = await Promise.all([
         api.getStatus().catch(() => null),
         api.getLatestPings().catch(() => []),
         api.getLatestSpeedtest().catch(() => null),
         api.getLatestDns().catch(() => []),
         api.getPingResults(start, now).catch(() => []),
         api.getRecentOutages(5).catch(() => []),
+        api.getStats(timeRange).catch(() => null),
       ]);
 
       setStatus(statusData);
@@ -48,6 +51,7 @@ export default function Dashboard() {
       setLatestDns(dns);
       setPingHistory(history);
       setRecentOutages(outages);
+      setStats(statsData);
       setError(null);
     } catch (err) {
       setError('Failed to fetch data. Is the backend running?');
@@ -102,6 +106,8 @@ export default function Dashboard() {
 
       <StatusCard
         inOutage={status?.inOutage || false}
+        uptime={stats?.outages.uptimePercent}
+        uptimePeriod={timeRange}
         lastOutage={
           lastResolvedOutage
             ? {

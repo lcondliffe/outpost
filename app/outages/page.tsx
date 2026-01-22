@@ -35,7 +35,7 @@ export default function OutagesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-2xl font-bold">Outage History</h1>
         <TimeRangeSelect value={timeRange} onChange={setTimeRange} />
       </div>
@@ -58,7 +58,7 @@ export default function OutagesPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <div className="text-sm text-gray-400 mb-1">Total Outages</div>
           <div className="text-3xl font-bold">{outages.length}</div>

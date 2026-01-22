@@ -65,9 +65,9 @@ export default function SpeedtestPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-2xl font-bold">Speedtest History</h1>
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center gap-3 flex-wrap">
           <button
             onClick={handleRunTest}
             disabled={isRunning}
@@ -79,7 +79,7 @@ export default function SpeedtestPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <div className="text-sm text-gray-400 mb-1">Avg Download</div>
           <div className="text-2xl font-bold text-green-400">

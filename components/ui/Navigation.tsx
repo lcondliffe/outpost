@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -9,7 +10,9 @@ import {
   Gauge, 
   Globe, 
   AlertTriangle, 
-  Settings 
+  Settings,
+  Menu,
+  X
 } from 'lucide-react';
 
 const navItems = [
@@ -23,6 +26,7 @@ const navItems = [
 
 export default function Navigation() {
   const pathname = usePathname();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
     <nav className="sticky top-0 z-50 glass border-b border-white/5 mb-6">
@@ -36,7 +40,9 @@ export default function Navigation() {
               OUTPOST
             </span>
           </Link>
-          <div className="flex space-x-1">
+
+          {/* Desktop navigation */}
+          <div className="hidden md:flex space-x-1">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href;
@@ -57,7 +63,44 @@ export default function Navigation() {
               );
             })}
           </div>
+
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+            aria-label="Toggle menu"
+          >
+            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
         </div>
+
+        {/* Mobile navigation */}
+        {mobileMenuOpen && (
+          <div className="md:hidden py-4 border-t border-white/5">
+            <div className="flex flex-col space-y-1">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={cn(
+                      'px-3 py-3 rounded-lg text-sm font-medium transition-all duration-200 flex items-center space-x-3',
+                      isActive
+                        ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/10'
+                        : 'text-gray-400 hover:text-white hover:bg-white/5'
+                    )}
+                  >
+                    <Icon className="w-5 h-5" />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </nav>
   );

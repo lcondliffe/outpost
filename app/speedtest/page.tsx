@@ -160,7 +160,9 @@ export default function SpeedtestPage() {
                       {r.success ? (
                         <span className="text-green-400">Success</span>
                       ) : (
-                        <span className="text-red-400">Failed</span>
+                        <span className="text-red-400" title={r.error || undefined}>
+                          Failed
+                        </span>
                       )}
                     </td>
                   </tr>

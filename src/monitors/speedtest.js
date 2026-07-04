@@ -10,6 +10,13 @@ let isRunning = false;
 let pendingJobs = new Map();
 let jobIdCounter = 0;
 
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 45000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function runSpeedtestCli(serverId = null) {
   const args = ['--json'];
   if (serverId) {
@@ -30,9 +37,13 @@ async function runSpeedtestCli(serverId = null) {
       jitterMs: null, // speedtest-cli doesn't provide jitter
       serverId: result.server?.id?.toString() || null,
       serverName: result.server?.name || null,
+      error: null,
     };
   } catch (err) {
-    console.error('Speedtest error:', err.message);
+    const detail = err.killed
+      ? 'Timed out after 120s'
+      : (err.stderr || err.message || 'Unknown error').trim().slice(0, 300);
+    console.error('Speedtest error:', detail);
     return {
       success: false,
       downloadMbps: null,
@@ -41,8 +52,25 @@ async function runSpeedtestCli(serverId = null) {
       jitterMs: null,
       serverId: null,
       serverName: null,
+      error: detail,
     };
   }
+}
+
+async function runSpeedtestCliWithRetry(serverId = null) {
+  let result;
+  for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+    result = await runSpeedtestCli(serverId);
+    if (result.success) {
+      return result;
+    }
+    if (attempt < RETRY_ATTEMPTS) {
+      const delay = RETRY_BASE_DELAY_MS + Math.floor(Math.random() * 30000);
+      console.log(`Speedtest attempt ${attempt} failed, retrying in ${Math.round(delay / 1000)}s...`);
+      await sleep(delay);
+    }
+  }
+  return result;
 }
 
 async function runSpeedtestMonitor() {
@@ -62,7 +90,7 @@ async function runSpeedtestMonitor() {
   console.log('Starting speedtest...');
 
   try {
-    const result = await runSpeedtestCli(speedtestConfig.serverId);
+    const result = await runSpeedtestCliWithRetry(speedtestConfig.serverId);
     const timestamp = Date.now();
 
     const data = {
@@ -74,6 +102,7 @@ async function runSpeedtestMonitor() {
       serverId: result.serverId,
       serverName: result.serverName,
       success: result.success,
+      error: result.error,
     };
 
     db.insertSpeedtest(data);
@@ -83,7 +112,7 @@ async function runSpeedtestMonitor() {
         `Speedtest complete: ↓${result.downloadMbps?.toFixed(1)} Mbps ↑${result.uploadMbps?.toFixed(1)} Mbps`
       );
     } else {
-      console.log('Speedtest failed');
+      console.log(`Speedtest failed after ${RETRY_ATTEMPTS} attempts: ${result.error}`);
     }
 
     return data;
@@ -130,6 +159,7 @@ function getJobStatus(jobId) {
 
 module.exports = {
   runSpeedtestCli,
+  runSpeedtestCliWithRetry,
   runSpeedtestMonitor,
   triggerSpeedtest,
   getJobStatus,

@@ -253,6 +253,13 @@ Speedtest requires:
 - NET_RAW capability (automatic with host network mode)
 - speedtest-cli package installed
 
+Note: scheduled speedtests run at a random minute offset past the hour, not at
+:00 exactly. Speedtest.net rate-limits the server-list endpoint at the top of
+the hour (when every cron-scheduled client in the world fires at once), which
+makes tests scheduled at :00 fail with "Unable to connect to servers to test
+latency". Failed runs are retried up to 3 times with backoff, and the failure
+reason is stored with each result.
+
 ### No data showing up
 Wait a few minutes for the monitors to run their first checks. Default intervals:
 - Ping: Every 60 seconds

@@ -32,6 +32,7 @@ export interface SpeedtestResult {
   server_id: string | null;
   server_name: string | null;
   success: number;
+  error: string | null;
 }
 
 export interface DnsResult {

@@ -21,11 +21,16 @@ function secondsToCron(seconds) {
   return `0 */${Math.round(minutes / 60)} * * *`;
 }
 
-function hoursToCron(hours) {
+// Speedtest.net rejects the server-list fetch at exactly the top of the hour,
+// when every cron-scheduled client on the internet runs at once. Use a random
+// minute offset (stable for the lifetime of the process) to stay out of the stampede.
+const speedtestMinuteOffset = 2 + Math.floor(Math.random() * 56);
+
+function hoursToCron(hours, minute = 0) {
   if (hours === 1) {
-    return '0 * * * *';
+    return `${minute} * * * *`;
   }
-  return `0 */${hours} * * *`;
+  return `${minute} */${hours} * * *`;
 }
 
 async function runPingAndCheckOutage() {
@@ -103,7 +108,8 @@ function startScheduler() {
 
   // Schedule speedtest
   if (config.monitors.speedtest.enabled) {
-    const speedtestCron = hoursToCron(config.monitors.speedtest.intervalHours);
+    const speedtestCron = hoursToCron(config.monitors.speedtest.intervalHours, speedtestMinuteOffset);
+    console.log(`  - Speedtest schedule: "${speedtestCron}" (offset ${speedtestMinuteOffset}m past the hour)`);
     const speedtestTask = cron.schedule(speedtestCron, runSpeedtest);
     scheduledTasks.push(speedtestTask);
 

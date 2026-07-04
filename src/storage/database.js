@@ -77,6 +77,12 @@ function getDb() {
     CREATE INDEX IF NOT EXISTS idx_outages_start ON outages(start_time);
   `);
 
+  // Migration: failure detail for speedtest results (added after initial release)
+  const speedtestCols = dbInstance.prepare('PRAGMA table_info(speedtest_results)').all();
+  if (!speedtestCols.some((c) => c.name === 'error')) {
+    dbInstance.exec('ALTER TABLE speedtest_results ADD COLUMN error TEXT');
+  }
+
   // Prepare statements
   // Ping results
   stmts.insertPing = dbInstance.prepare(`
@@ -114,8 +120,8 @@ function getDb() {
 
   // Speedtest results
   stmts.insertSpeedtest = dbInstance.prepare(`
-    INSERT INTO speedtest_results (timestamp, download_mbps, upload_mbps, ping_ms, jitter_ms, server_id, server_name, success)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO speedtest_results (timestamp, download_mbps, upload_mbps, ping_ms, jitter_ms, server_id, server_name, success, error)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmts.getSpeedtestResults = dbInstance.prepare(`
@@ -282,7 +288,8 @@ module.exports = {
     getDb();
     return stmts.insertSpeedtest.run(
       data.timestamp, data.downloadMbps, data.uploadMbps,
-      data.pingMs, data.jitterMs, data.serverId, data.serverName, data.success ? 1 : 0
+      data.pingMs, data.jitterMs, data.serverId, data.serverName, data.success ? 1 : 0,
+      data.error || null
     );
   },
   getSpeedtestResults: (start, end) => {

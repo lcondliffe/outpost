@@ -228,7 +228,7 @@ npm start
 - **Framework**: Fastify
 - **Database**: better-sqlite3
 - **Scheduler**: node-cron
-- **Monitoring**: ping, speedtest-cli, native DNS
+- **Monitoring**: ping, Ookla speedtest CLI (with speedtest-cli fallback), native DNS
 
 ### Frontend
 - **Framework**: Next.js 14+ with App Router
@@ -251,7 +251,12 @@ Check for errors in the logs. Common issues:
 Speedtest requires:
 - Working internet connection
 - NET_RAW capability (automatic with host network mode)
-- speedtest-cli package installed
+- The Ookla `speedtest` CLI or the Python `speedtest-cli` package installed
+
+The Ookla CLI (bundled in the Docker image) streams live progress, so manual
+runs from the dashboard show the current speed while the test is running. If
+only the Python `speedtest-cli` is available, tests still work but results
+only appear once the test completes.
 
 Note: scheduled speedtests run at a random minute offset past the hour, not at
 :00 exactly. Speedtest.net rate-limits the server-list endpoint at the top of

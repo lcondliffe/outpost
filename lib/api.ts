@@ -87,6 +87,37 @@ export interface Stats {
   };
 }
 
+export interface SpeedtestProgress {
+  phase: 'starting' | 'running' | 'ping' | 'download' | 'upload' | 'retrying' | 'complete';
+  percent?: number;
+  pingMs?: number | null;
+  downloadMbps?: number | null;
+  uploadMbps?: number | null;
+  serverName?: string | null;
+  attempt?: number;
+  nextRetrySeconds?: number;
+}
+
+export interface SpeedtestJob {
+  id: string;
+  status: 'running' | 'complete' | 'skipped' | 'error';
+  progress?: SpeedtestProgress;
+  result: {
+    timestamp: number;
+    downloadMbps: number | null;
+    uploadMbps: number | null;
+    pingMs: number | null;
+    jitterMs: number | null;
+    serverId: string | null;
+    serverName: string | null;
+    success: boolean;
+    error: string | null;
+  } | null;
+  error?: string;
+  startedAt: number;
+  completedAt?: number;
+}
+
 export interface OutageStatus {
   inOutage: boolean;
   activeOutage: {
@@ -153,7 +184,11 @@ export const api = {
   },
   getLatestSpeedtest: () => fetchApi<SpeedtestResult>('/api/speedtest/latest'),
   triggerSpeedtest: () =>
-    fetch(`/api/speedtest/run`, { method: 'POST' }).then((r) => r.json()),
+    fetch(`/api/speedtest/run`, { method: 'POST' }).then(
+      (r) => r.json() as Promise<{ status: string; id: string }>
+    ),
+  getSpeedtestJob: (id: string) =>
+    fetchApi<SpeedtestJob>(`/api/speedtest/run/${encodeURIComponent(id)}`),
 
   // DNS
   getDnsResults: (start?: number, end?: number, server?: string) => {

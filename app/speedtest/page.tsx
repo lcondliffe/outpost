@@ -4,13 +4,14 @@ import { useState, useEffect, useCallback } from 'react';
 import Card from '@/components/ui/Card';
 import TimeRangeSelect from '@/components/ui/TimeRangeSelect';
 import SpeedChart from '@/components/charts/SpeedChart';
+import SpeedtestLiveProgress from '@/components/dashboard/SpeedtestLiveProgress';
+import { useSpeedtestJob } from '@/lib/useSpeedtestJob';
 import { api, getPeriodMs, SpeedtestResult, formatRelativeTime } from '@/lib/api';
 
 export default function SpeedtestPage() {
   const [timeRange, setTimeRange] = useState('7d');
   const [results, setResults] = useState<SpeedtestResult[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isRunning, setIsRunning] = useState(false);
 
   const fetchData = useCallback(async () => {
     const now = Date.now();
@@ -20,34 +21,13 @@ export default function SpeedtestPage() {
     setLoading(false);
   }, [timeRange]);
 
+  const { job, isRunning, start: handleRunTest } = useSpeedtestJob(fetchData);
+
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 60000);
     return () => clearInterval(interval);
   }, [fetchData]);
-
-  const handleRunTest = async () => {
-    setIsRunning(true);
-    try {
-      await api.triggerSpeedtest();
-      // Poll for new result
-      const startTime = Date.now();
-      const checkInterval = setInterval(async () => {
-        const data = await api.getSpeedtestResults(startTime - 1000, Date.now());
-        if (data.length > 0) {
-          clearInterval(checkInterval);
-          setIsRunning(false);
-          fetchData();
-        }
-      }, 5000);
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        setIsRunning(false);
-      }, 180000);
-    } catch {
-      setIsRunning(false);
-    }
-  };
 
   const successfulTests = results.filter((r) => r.success);
   const avgDownload = successfulTests.length
@@ -78,6 +58,24 @@ export default function SpeedtestPage() {
           <TimeRangeSelect value={timeRange} onChange={setTimeRange} />
         </div>
       </div>
+
+      {isRunning && (
+        <Card title="Speedtest in Progress">
+          <SpeedtestLiveProgress progress={job?.progress} />
+        </Card>
+      )}
+
+      {!isRunning && job?.status === 'skipped' && (
+        <div className="bg-yellow-900/30 border border-yellow-800 text-yellow-200 px-4 py-3 rounded text-sm">
+          Speedtest skipped — another test is already running, or the speedtest monitor is disabled.
+        </div>
+      )}
+
+      {!isRunning && job?.status === 'complete' && job.result && !job.result.success && (
+        <div className="bg-red-900/30 border border-red-800 text-red-200 px-4 py-3 rounded text-sm">
+          Speedtest failed: {job.result.error || 'Unknown error'}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>

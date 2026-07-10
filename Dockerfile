@@ -20,8 +20,22 @@ RUN npm run build
 FROM node:22-alpine AS runner
 WORKDIR /app
 
-# Install runtime dependencies
+# Install runtime dependencies (speedtest-cli kept as fallback engine)
 RUN apk add --no-cache iputils speedtest-cli
+
+# Install Ookla speedtest CLI (static musl build) for live progress output
+ARG OOKLA_SPEEDTEST_VERSION=1.2.0
+RUN ARCH="$(apk --print-arch)" && \
+    case "$ARCH" in \
+      x86_64) ST_ARCH=x86_64 ;; \
+      aarch64) ST_ARCH=aarch64 ;; \
+      armv7) ST_ARCH=armhf ;; \
+      *) ST_ARCH=x86_64 ;; \
+    esac && \
+    wget -qO /tmp/ookla-speedtest.tgz \
+      "https://install.speedtest.net/app/cli/ookla-speedtest-${OOKLA_SPEEDTEST_VERSION}-linux-${ST_ARCH}.tgz" && \
+    tar -xzf /tmp/ookla-speedtest.tgz -C /usr/local/bin speedtest && \
+    rm /tmp/ookla-speedtest.tgz
 
 ENV NODE_ENV=production
 ENV OUTPOST_DATA_DIR=/data

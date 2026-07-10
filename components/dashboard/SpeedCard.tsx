@@ -1,16 +1,18 @@
 'use client';
 
-import { SpeedtestResult, formatRelativeTime } from '@/lib/api';
+import { SpeedtestResult, SpeedtestProgress, formatRelativeTime } from '@/lib/api';
 import Card from '@/components/ui/Card';
+import SpeedtestLiveProgress from '@/components/dashboard/SpeedtestLiveProgress';
 import { Download, Upload, Activity, Play, Loader2 } from 'lucide-react';
 
 interface SpeedCardProps {
   speedtest: SpeedtestResult | null;
   onRunTest: () => void;
   isRunning: boolean;
+  progress?: SpeedtestProgress | null;
 }
 
-export default function SpeedCard({ speedtest, onRunTest, isRunning }: SpeedCardProps) {
+export default function SpeedCard({ speedtest, onRunTest, isRunning, progress }: SpeedCardProps) {
   return (
     <Card
       title="Network Speed"
@@ -34,7 +36,9 @@ export default function SpeedCard({ speedtest, onRunTest, isRunning }: SpeedCard
         </button>
       }
     >
-      {speedtest && speedtest.success ? (
+      {isRunning ? (
+        <SpeedtestLiveProgress progress={progress} />
+      ) : speedtest && speedtest.success ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="flex items-center space-x-4">
             <div className="p-3 rounded-full bg-emerald-500/10 text-emerald-400">
@@ -80,7 +84,7 @@ export default function SpeedCard({ speedtest, onRunTest, isRunning }: SpeedCard
         </div>
       )}
       
-      {speedtest && (
+      {speedtest && !isRunning && (
         <div className="mt-6 pt-4 border-t border-white/5 flex justify-end">
           <span className="text-xs text-gray-500">
             Last updated: {formatRelativeTime(speedtest.timestamp)}

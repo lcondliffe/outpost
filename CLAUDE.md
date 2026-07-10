@@ -166,7 +166,7 @@ The `Dockerfile` uses a 4-stage multi-stage build:
 1. `base` — Node 22-alpine + native build tools + iputils + speedtest-cli
 2. `deps` — `npm ci` to install dependencies
 3. `builder` — `next build` producing standalone output
-4. `runner` — Minimal production image, non-root user (`outpost`, UID 1001), `/data` volume
+4. `runner` — Minimal production image, non-root user (`outpost`, UID 1001), `/data` volume, Ookla speedtest CLI (live progress) + speedtest-cli fallback
 
 The container requires `NET_RAW` capability for ICMP ping. Default port is 3000. Data persists at `/data`.
 

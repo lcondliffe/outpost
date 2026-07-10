@@ -7,6 +7,7 @@ import LatencyCard from '@/components/dashboard/LatencyCard';
 import DnsCard from '@/components/dashboard/DnsCard';
 import LatencyChart from '@/components/charts/LatencyChart';
 import TimeRangeSelect from '@/components/ui/TimeRangeSelect';
+import { useSpeedtestJob } from '@/lib/useSpeedtestJob';
 import {
   api,
   getPeriodMs,
@@ -27,7 +28,6 @@ export default function Dashboard() {
   const [pingHistory, setPingHistory] = useState<PingResult[]>([]);
   const [recentOutages, setRecentOutages] = useState<Outage[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [isRunningSpeedtest, setIsRunningSpeedtest] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -65,29 +65,11 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  const handleRunSpeedtest = async () => {
-    setIsRunningSpeedtest(true);
-    try {
-      await api.triggerSpeedtest();
-      // Poll for completion
-      const checkComplete = setInterval(async () => {
-        const result = await api.getLatestSpeedtest();
-        if (result && result.timestamp > (latestSpeedtest?.timestamp || 0)) {
-          setLatestSpeedtest(result);
-          setIsRunningSpeedtest(false);
-          clearInterval(checkComplete);
-        }
-      }, 5000);
-      // Timeout after 3 minutes
-      setTimeout(() => {
-        clearInterval(checkComplete);
-        setIsRunningSpeedtest(false);
-      }, 180000);
-    } catch (err) {
-      setIsRunningSpeedtest(false);
-      console.error('Speedtest error:', err);
-    }
-  };
+  const {
+    job: speedtestJob,
+    isRunning: isRunningSpeedtest,
+    start: handleRunSpeedtest,
+  } = useSpeedtestJob(fetchData);
 
   const lastResolvedOutage = recentOutages.find((o) => o.end_time !== null);
 
@@ -122,6 +104,7 @@ export default function Dashboard() {
         speedtest={latestSpeedtest}
         onRunTest={handleRunSpeedtest}
         isRunning={isRunningSpeedtest}
+        progress={speedtestJob?.progress}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

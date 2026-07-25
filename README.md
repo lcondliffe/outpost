@@ -77,6 +77,8 @@ Note: Bridge network mode may slightly affect latency measurements.
 
 The application creates a configuration file at `/data/config.json` which can be modified through the web interface at `/settings` or manually.
 
+Not every setting is exposed in the web interface. `monitors.ping.packetCount` (ICMP packets per check, 1–10, default 3) and `monitors.ping.timeout` are file-only and require a restart to take effect.
+
 Default configuration:
 ```json
 {
@@ -87,7 +89,9 @@ Default configuration:
       "targets": [
         { "host": "8.8.8.8", "name": "Google DNS" },
         { "host": "1.1.1.1", "name": "Cloudflare DNS" }
-      ]
+      ],
+      "timeout": 5000,
+      "packetCount": 3
     },
     "speedtest": {
       "enabled": true,

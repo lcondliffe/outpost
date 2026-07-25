@@ -4,9 +4,12 @@ const { getConfig } = require('../config');
 
 async function pingHost(host, timeout = 5000) {
   try {
+    const config = getConfig();
+    const packetCount = config.monitors?.ping?.packetCount || 3;
+
     const result = await ping.promise.probe(host, {
       timeout: Math.ceil(timeout / 1000),
-      extra: ['-c', '3'],
+      extra: ['-c', String(packetCount)],
     });
 
     return {

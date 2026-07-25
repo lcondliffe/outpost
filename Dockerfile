@@ -9,6 +9,14 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
+# Install production-only dependencies (no devDependencies), for the runtime image.
+# Uses `base` (not a slim node image) because better-sqlite3 is a production
+# dependency and needs python3/make/g++ to compile its native bindings.
+FROM base AS prod-deps
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+
 # Build the application
 FROM base AS builder
 WORKDIR /app
@@ -47,7 +55,7 @@ RUN adduser --system --uid 1001 outpost
 # Copy built application
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/server.js ./
 

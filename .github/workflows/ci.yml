@@ -114,8 +114,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Dev dependencies are excluded because they are no longer shipped in the
+      # runtime image (see the prod-deps stage in the Dockerfile), so only
+      # runtime dependencies gate the release.
       - name: Run npm audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high --omit=dev
 
       - name: Run Snyk to check for vulnerabilities
         uses: snyk/actions/node@master
@@ -192,6 +195,54 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'  # Don't fail on vulnerabilities (informational)
+
+      # The runtime image ships production-only dependencies, so a missing or
+      # unbuildable runtime module would otherwise only surface once watchtower
+      # deployed the image. Boot the container and exercise a route that reads
+      # SQLite, which proves better-sqlite3's native bindings actually loaded.
+      - name: Smoke test container
+        run: |
+          set -eu
+          CONTAINER_ID=$(docker run -d \
+            -p 8080:3000 \
+            ${{ steps.image-name.outputs.lowercase }}:scan)
+
+          cleanup() {
+            docker stop "$CONTAINER_ID" >/dev/null 2>&1 || true
+            docker rm "$CONTAINER_ID" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          fail() {
+            echo "$1"
+            echo "--- docker logs ---"
+            docker logs "$CONTAINER_ID" || true
+            exit 1
+          }
+
+          echo "Waiting for container to report healthy..."
+          HEALTHY=0
+          for _ in $(seq 1 30); do
+            if curl -sf http://localhost:8080/api/health | grep -q '"status":"ok"'; then
+              HEALTHY=1
+              break
+            fi
+            sleep 2
+          done
+
+          [ "$HEALTHY" -eq 1 ] || fail "Container failed to become healthy within timeout"
+          echo "Container is healthy."
+
+          # /api/status calls into better-sqlite3; it returns HTTP 500 if the
+          # native module is missing, so a 200 here is the real dependency check.
+          echo "Checking a database-backed route..."
+          STATUS_CODE=$(curl -s -o /tmp/status.json -w '%{http_code}' http://localhost:8080/api/status)
+          echo "GET /api/status -> $STATUS_CODE"
+          cat /tmp/status.json || true
+          echo
+          [ "$STATUS_CODE" = "200" ] || fail "Database-backed route failed (HTTP $STATUS_CODE)"
+
+          echo "Smoke test passed."
 
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request'

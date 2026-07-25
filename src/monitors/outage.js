@@ -1,10 +1,15 @@
 const db = require('../storage/database');
 const { getConfig } = require('../config');
 
-// Track consecutive failures/successes
-let consecutivePingFailures = 0;
-let consecutivePingSuccesses = 0;
-let lastDnsSuccess = true;
+// Shared mutable state. This module gets instantiated multiple times in one
+// process (server.js loads it via plain require, while Next.js bundles a
+// separate copy into each API route), so the state must live on globalThis
+// for the counters to actually be shared.
+const state = globalThis.__outpostOutageState ??= {
+  consecutivePingFailures: 0,
+  consecutivePingSuccesses: 0,
+  lastDnsSuccess: true,
+};
 
 function checkOutageConditions(pingResults, dnsResults) {
   const config = getConfig();
@@ -20,14 +25,14 @@ function checkOutageConditions(pingResults, dnsResults) {
 
   // Update consecutive counters
   if (allPingsFailed) {
-    consecutivePingFailures++;
-    consecutivePingSuccesses = 0;
+    state.consecutivePingFailures++;
+    state.consecutivePingSuccesses = 0;
   } else if (anyPingSucceeded) {
-    consecutivePingSuccesses++;
-    consecutivePingFailures = 0;
+    state.consecutivePingSuccesses++;
+    state.consecutivePingFailures = 0;
   }
 
-  lastDnsSuccess = anyDnsSucceeded;
+  state.lastDnsSuccess = anyDnsSucceeded;
 
   // Determine current state
   const activeOutage = db.getActiveOutage();
@@ -35,11 +40,11 @@ function checkOutageConditions(pingResults, dnsResults) {
   // Check if we should start an outage
   if (!activeOutage) {
     const shouldStartOutage =
-      consecutivePingFailures >= pingFailuresForOutage || allDnsFailed;
+      state.consecutivePingFailures >= pingFailuresForOutage || allDnsFailed;
 
     if (shouldStartOutage) {
       const affectedServices = [];
-      if (consecutivePingFailures >= pingFailuresForOutage) {
+      if (state.consecutivePingFailures >= pingFailuresForOutage) {
         affectedServices.push('ping');
       }
       if (allDnsFailed) {
@@ -59,7 +64,7 @@ function checkOutageConditions(pingResults, dnsResults) {
   // Check if we should end an outage
   if (activeOutage) {
     const shouldEndOutage =
-      consecutivePingSuccesses >= pingSuccessesForRecovery && lastDnsSuccess;
+      state.consecutivePingSuccesses >= pingSuccessesForRecovery && state.lastDnsSuccess;
 
     if (shouldEndOutage) {
       const endTime = Date.now();
@@ -68,7 +73,7 @@ function checkOutageConditions(pingResults, dnsResults) {
       db.updateOutage(activeOutage.id, endTime, durationSeconds);
 
       // Reset counters
-      consecutivePingFailures = 0;
+      state.consecutivePingFailures = 0;
 
       console.log(`OUTAGE ENDED: ID ${activeOutage.id}, duration: ${durationSeconds}s`);
       return { action: 'ended', outageId: activeOutage.id, durationSeconds };
@@ -90,15 +95,15 @@ function getOutageStatus() {
           durationSeconds: Math.round((Date.now() - activeOutage.start_time) / 1000),
         }
       : null,
-    consecutivePingFailures,
-    consecutivePingSuccesses,
+    consecutivePingFailures: state.consecutivePingFailures,
+    consecutivePingSuccesses: state.consecutivePingSuccesses,
   };
 }
 
 function resetCounters() {
-  consecutivePingFailures = 0;
-  consecutivePingSuccesses = 0;
-  lastDnsSuccess = true;
+  state.consecutivePingFailures = 0;
+  state.consecutivePingSuccesses = 0;
+  state.lastDnsSuccess = true;
 }
 
 module.exports = {

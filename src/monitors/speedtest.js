@@ -293,6 +293,16 @@ async function runSpeedtestMonitor(onProgress = null) {
   }
 }
 
+// How long a finished job lingers in pendingJobs so the UI can read its
+// final result before it is reclaimed.
+const JOB_RETENTION_MS = 5 * 60 * 1000;
+
+// Absolute upper bound on a job's lifetime, in case it somehow never
+// reaches a terminal state. Worst case is 3 attempts x 120s timeout plus 2
+// retry delays of 45-75s (~7 minutes), so this must stay comfortably above
+// that rather than matching it.
+const JOB_BACKSTOP_MS = 12 * 60 * 1000;
+
 // Manual speedtest trigger with job tracking and live progress
 function triggerSpeedtest() {
   const jobId = `speedtest-${++state.jobIdCounter}`;
@@ -307,6 +317,22 @@ function triggerSpeedtest() {
 
   state.pendingJobs.set(jobId, job);
 
+  // Backstop cleanup in case the job never reaches a terminal state.
+  // Replaced by a shorter post-completion timer once the job actually
+  // finishes (see scheduleCleanup below).
+  const backstopTimer = setTimeout(() => {
+    state.pendingJobs.delete(jobId);
+  }, JOB_BACKSTOP_MS);
+
+  // Called from every terminal code path (success, skipped, or error) to
+  // cancel the backstop and give the UI a few minutes to read the result.
+  const scheduleCleanup = () => {
+    clearTimeout(backstopTimer);
+    setTimeout(() => {
+      state.pendingJobs.delete(jobId);
+    }, JOB_RETENTION_MS);
+  };
+
   // Run speedtest in background, merging live progress into the job
   const onProgress = (update) => {
     job.progress = { ...job.progress, ...update };
@@ -318,16 +344,13 @@ function triggerSpeedtest() {
     job.progress = { ...job.progress, phase: 'complete', percent: 100 };
     job.result = result;
     job.completedAt = Date.now();
+    scheduleCleanup();
   }).catch((err) => {
     job.status = 'error';
     job.error = err.message;
     job.completedAt = Date.now();
+    scheduleCleanup();
   });
-
-  // Clean up old jobs after 5 minutes
-  setTimeout(() => {
-    state.pendingJobs.delete(jobId);
-  }, 5 * 60 * 1000);
 
   return jobId;
 }

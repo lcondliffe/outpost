@@ -228,12 +228,18 @@ function getDb() {
     WHERE timestamp >= ?
   `);
 
+  // Sums the intersection of each outage with the window [since, now],
+  // treating an ongoing outage (end_time IS NULL) as still open at `now`.
+  // Outages are counted/summed if they overlap the window at all, even if
+  // they started before it or are still ongoing.
   stmts.getOutageStats = dbInstance.prepare(`
     SELECT
       COUNT(*) as total_outages,
-      SUM(duration_seconds) as total_downtime_seconds
+      SUM(
+        MAX(0, MIN(COALESCE(end_time, @now), @now) - MAX(start_time, @since))
+      ) as total_downtime_ms
     FROM outages
-    WHERE start_time >= ? AND end_time IS NOT NULL
+    WHERE start_time < @now AND COALESCE(end_time, @now) > @since
   `);
 
   // Retention cleanup
@@ -364,9 +370,14 @@ module.exports = {
     getDb();
     return stmts.getDnsStats.get(since);
   },
-  getOutageStats: (since) => {
+  getOutageStats: (since, now = Date.now()) => {
     getDb();
-    return stmts.getOutageStats.get(since);
+    const row = stmts.getOutageStats.get({ since, now });
+    const totalDowntimeMs = row?.total_downtime_ms || 0;
+    return {
+      total_outages: row?.total_outages || 0,
+      total_downtime_seconds: totalDowntimeMs / 1000,
+    };
   },
 
   // Maintenance

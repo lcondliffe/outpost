@@ -184,7 +184,7 @@ function getDb() {
 
   stmts.getOutages = dbInstance.prepare(`
     SELECT * FROM outages
-    WHERE start_time >= ? AND (end_time <= ? OR end_time IS NULL)
+    WHERE start_time <= ? AND (end_time IS NULL OR end_time >= ?)
     ORDER BY start_time DESC
   `);
 
@@ -341,7 +341,10 @@ module.exports = {
   },
   getOutages: (start, end) => {
     getDb();
-    return stmts.getOutages.all(start, end);
+    // Overlap semantics: an outage overlaps [start, end] when it started
+    // at or before the window's end, and either it's still ongoing
+    // (end_time IS NULL) or it ended at or after the window's start.
+    return stmts.getOutages.all(end, start);
   },
   getRecentOutages: (limit = 10) => {
     getDb();

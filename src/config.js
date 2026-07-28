@@ -49,6 +49,7 @@ const CONSTRAINTS = {
   ping: {
     intervalSeconds: { min: 30, max: 900 },
     maxTargets: 10,
+    packetCount: { min: 1, max: 10 },
   },
   speedtest: {
     intervalHours: { min: 1, max: 24 },
@@ -76,6 +77,14 @@ function validateConfig(config) {
   // Validate ping targets count
   if (config.monitors?.ping?.targets?.length > CONSTRAINTS.ping.maxTargets) {
     errors.push(`Maximum ${CONSTRAINTS.ping.maxTargets} ping targets allowed`);
+  }
+
+  // Validate ping packet count
+  if (config.monitors?.ping?.packetCount !== undefined) {
+    const val = config.monitors.ping.packetCount;
+    if (val < CONSTRAINTS.ping.packetCount.min || val > CONSTRAINTS.ping.packetCount.max) {
+      errors.push(`Ping packet count must be between ${CONSTRAINTS.ping.packetCount.min} and ${CONSTRAINTS.ping.packetCount.max}`);
+    }
   }
 
   // Validate speedtest interval

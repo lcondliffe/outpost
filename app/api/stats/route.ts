@@ -18,15 +18,24 @@ export async function GET(request: NextRequest) {
   const since = getPeriodStart(period);
 
   try {
+    const now = Date.now();
     const pingStats = db.getPingStats(since);
     const speedtestStats = db.getSpeedtestStats(since);
     const dnsStats = db.getDnsStats(since);
-    const outageStats = db.getOutageStats(since);
+    const outageStats = db.getOutageStats(since, now);
 
-    // Calculate uptime percentage
-    const totalSeconds = (Date.now() - since) / 1000;
+    // Calculate uptime percentage from the downtime that actually falls
+    // within [since, now], clamped to a sane 0-100 range. Outages that are
+    // ongoing or that straddle the window boundaries are only counted for
+    // the portion that overlaps the window (see getOutageStats), so this
+    // can no longer exceed the window length or go negative from bad data,
+    // but we clamp defensively anyway.
+    const totalSeconds = (now - since) / 1000;
     const downtimeSeconds = outageStats?.total_downtime_seconds || 0;
-    const uptimePercent = ((totalSeconds - downtimeSeconds) / totalSeconds) * 100;
+    const rawUptimePercent = totalSeconds > 0
+      ? ((totalSeconds - downtimeSeconds) / totalSeconds) * 100
+      : 100;
+    const uptimePercent = Math.min(100, Math.max(0, rawUptimePercent));
 
     return NextResponse.json({
       period,

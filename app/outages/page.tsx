@@ -8,6 +8,7 @@ import { api, getPeriodMs, Outage, formatDuration } from '@/lib/api';
 export default function OutagesPage() {
   const [timeRange, setTimeRange] = useState('30d');
   const [outages, setOutages] = useState<Outage[]>([]);
+  const [range, setRange] = useState<{ start: number; end: number } | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
@@ -15,6 +16,7 @@ export default function OutagesPage() {
     const start = now - getPeriodMs(timeRange);
     const data = await api.getOutages(start, now);
     setOutages(data);
+    setRange({ start, end: now });
     setLoading(false);
   }, [timeRange]);
 
@@ -25,13 +27,28 @@ export default function OutagesPage() {
   }, [fetchData]);
 
   const activeOutage = outages.find((o) => o.end_time === null);
-  const resolvedOutages = outages.filter((o) => o.end_time !== null);
-  const totalDowntime = resolvedOutages.reduce(
-    (sum, o) => sum + (o.duration_seconds || 0),
-    0
-  );
-  const periodMs = getPeriodMs(timeRange);
-  const uptimePercent = (((periodMs / 1000 - totalDowntime) / (periodMs / 1000)) * 100).toFixed(3);
+
+  // Sum only the portion of each outage that falls inside the fetched window,
+  // treating an ongoing outage as still running at the window's end. The API
+  // returns every outage overlapping the window, including ones that straddle
+  // a boundary, so their stored duration must be clipped rather than counted
+  // in full. This mirrors the same calculation in getOutageStats.
+  const periodSeconds = range ? (range.end - range.start) / 1000 : 0;
+  const totalDowntime = range
+    ? Math.round(
+        outages.reduce((sum, o) => {
+          const start = Math.max(o.start_time, range.start);
+          const end = Math.min(o.end_time ?? range.end, range.end);
+          return sum + Math.max(0, end - start) / 1000;
+        }, 0)
+      )
+    : 0;
+
+  const uptimePercent = (
+    periodSeconds > 0
+      ? Math.min(100, Math.max(0, ((periodSeconds - totalDowntime) / periodSeconds) * 100))
+      : 100
+  ).toFixed(3);
 
   return (
     <div className="space-y-6">

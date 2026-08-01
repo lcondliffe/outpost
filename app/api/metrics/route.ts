@@ -46,13 +46,27 @@ export async function GET() {
   lines.push('# HELP outpost_dns_up Whether the latest DNS check succeeded (1) or not (0)');
   lines.push('# TYPE outpost_dns_up gauge');
 
-  const latestDns = db.getLatestDns();
-  for (const dns of latestDns) {
-    const labels = { server: dns.server, name: dns.server_name || dns.server };
-    if (dns.success && dns.response_time_ms != null) {
-      lines.push(metricLine('outpost_dns_response_ms', dns.response_time_ms, labels));
+  // getLatestDns returns the latest row per (server, query_domain) pair, since
+  // each check queries multiple domains — collapse those down to one series
+  // per server so the exposition format has no duplicate label sets.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type DnsRow = any;
+  const dnsByServer = new Map<string, { name: string; results: DnsRow[] }>();
+  const latestDnsRows: DnsRow[] = db.getLatestDns();
+  for (const dns of latestDnsRows) {
+    const entry = dnsByServer.get(dns.server) ?? { name: dns.server_name || dns.server, results: [] as DnsRow[] };
+    entry.results.push(dns);
+    dnsByServer.set(dns.server, entry);
+  }
+  for (const [server, { name, results }] of dnsByServer) {
+    const labels = { server, name };
+    const successful = results.filter((r) => r.success && r.response_time_ms != null);
+    if (successful.length > 0) {
+      const avgResponseMs =
+        successful.reduce((sum, r) => sum + r.response_time_ms, 0) / successful.length;
+      lines.push(metricLine('outpost_dns_response_ms', avgResponseMs, labels));
     }
-    lines.push(metricLine('outpost_dns_up', dns.success ? 1 : 0, labels));
+    lines.push(metricLine('outpost_dns_up', results.every((r) => r.success) ? 1 : 0, labels));
   }
 
   // Speedtest metrics

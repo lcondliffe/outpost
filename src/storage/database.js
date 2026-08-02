@@ -136,6 +136,16 @@ function getDb() {
     LIMIT 1
   `);
 
+  // Distinct from getLatestSpeedtest: the most recent run may have failed, and
+  // consumers reporting "time since last good result" need the last successful
+  // one regardless of how many failures followed it.
+  stmts.getLastSuccessfulSpeedtest = dbInstance.prepare(`
+    SELECT * FROM speedtest_results
+    WHERE success = 1
+    ORDER BY timestamp DESC
+    LIMIT 1
+  `);
+
   // DNS results
   stmts.insertDns = dbInstance.prepare(`
     INSERT INTO dns_results (timestamp, server, server_name, query_domain, response_time_ms, success)
@@ -305,6 +315,10 @@ module.exports = {
   getLatestSpeedtest: () => {
     getDb();
     return stmts.getLatestSpeedtest.get();
+  },
+  getLastSuccessfulSpeedtest: () => {
+    getDb();
+    return stmts.getLastSuccessfulSpeedtest.get();
   },
 
   // DNS

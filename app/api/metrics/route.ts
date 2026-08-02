@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import packageJson from '@/package.json';
 import db from '@/src/storage/database';
 
+const CONTENT_TYPE = 'text/plain; version=0.0.4; charset=utf-8';
+
 function escapeLabelValue(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
 }
@@ -18,6 +20,21 @@ function metricLine(name: string, value: number, labels: Record<string, string> 
 }
 
 export async function GET() {
+  try {
+    return buildMetricsResponse();
+  } catch (error) {
+    console.error('Error building metrics:', error);
+    // Plain text rather than the JSON error the other routes return — a scraper
+    // reading this endpoint gets text/plain, and a non-200 is enough for
+    // Prometheus to mark the target down.
+    return new NextResponse('# error building metrics\n', {
+      status: 500,
+      headers: { 'Content-Type': CONTENT_TYPE },
+    });
+  }
+}
+
+function buildMetricsResponse() {
   const lines: string[] = [];
 
   // Ping metrics
@@ -27,6 +44,10 @@ export async function GET() {
   lines.push('# TYPE outpost_ping_packet_loss_ratio gauge');
   lines.push('# HELP outpost_ping_up Whether the latest ping check succeeded (1) or not (0)');
   lines.push('# TYPE outpost_ping_up gauge');
+  lines.push(
+    '# HELP outpost_ping_last_check_timestamp_seconds Unix timestamp of the latest ping check'
+  );
+  lines.push('# TYPE outpost_ping_last_check_timestamp_seconds gauge');
 
   const latestPings = db.getLatestPings();
   for (const ping of latestPings) {
@@ -38,6 +59,16 @@ export async function GET() {
       metricLine('outpost_ping_packet_loss_ratio', (ping.packet_loss ?? 0) / 100, labels)
     );
     lines.push(metricLine('outpost_ping_up', ping.success ? 1 : 0, labels));
+    // Age of the reading, so a stalled scheduler is distinguishable from a
+    // healthy network: every gauge above keeps reporting its last known value
+    // indefinitely, and the HTTP endpoint stays up, so `up` alone can't catch it.
+    lines.push(
+      metricLine(
+        'outpost_ping_last_check_timestamp_seconds',
+        Math.floor(ping.timestamp / 1000),
+        labels
+      )
+    );
   }
 
   // DNS metrics
@@ -45,6 +76,10 @@ export async function GET() {
   lines.push('# TYPE outpost_dns_response_ms gauge');
   lines.push('# HELP outpost_dns_up Whether the latest DNS check succeeded (1) or not (0)');
   lines.push('# TYPE outpost_dns_up gauge');
+  lines.push(
+    '# HELP outpost_dns_last_check_timestamp_seconds Unix timestamp of the latest DNS check'
+  );
+  lines.push('# TYPE outpost_dns_last_check_timestamp_seconds gauge');
 
   // getLatestDns returns the latest row per (server, query_domain) pair, since
   // each check queries multiple domains — collapse those down to one series
@@ -67,6 +102,15 @@ export async function GET() {
       lines.push(metricLine('outpost_dns_response_ms', avgResponseMs, labels));
     }
     lines.push(metricLine('outpost_dns_up', results.every((r) => r.success) ? 1 : 0, labels));
+    // Newest of the per-domain rows — same staleness rationale as ping above.
+    const lastCheckMs = Math.max(...results.map((r) => r.timestamp));
+    lines.push(
+      metricLine(
+        'outpost_dns_last_check_timestamp_seconds',
+        Math.floor(lastCheckMs / 1000),
+        labels
+      )
+    );
   }
 
   // Speedtest metrics
@@ -97,10 +141,17 @@ export async function GET() {
     if (latestSpeedtest.jitter_ms != null) {
       lines.push(metricLine('outpost_speedtest_jitter_ms', latestSpeedtest.jitter_ms));
     }
+  }
+
+  // Sourced from the last *successful* run, not the latest one: when speedtests
+  // start failing this gauge has to keep climbing to show it. Reading it off
+  // getLatestSpeedtest() would delete the series exactly when it matters.
+  const lastGoodSpeedtest = db.getLastSuccessfulSpeedtest();
+  if (lastGoodSpeedtest) {
     lines.push(
       metricLine(
         'outpost_speedtest_last_success_timestamp_seconds',
-        Math.floor(latestSpeedtest.timestamp / 1000)
+        Math.floor(lastGoodSpeedtest.timestamp / 1000)
       )
     );
   }
@@ -133,8 +184,6 @@ export async function GET() {
 
   return new NextResponse(body, {
     status: 200,
-    headers: {
-      'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
-    },
+    headers: { 'Content-Type': CONTENT_TYPE },
   });
 }

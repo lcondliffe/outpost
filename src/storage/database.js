@@ -396,4 +396,9 @@ module.exports = {
 
   // Maintenance
   runRetentionCleanup,
+  close: () => {
+    // close() checkpoints the WAL back into the main database file.
+    if (dbInstance) dbInstance.close();
+    dbInstance = null;
+  },
 };

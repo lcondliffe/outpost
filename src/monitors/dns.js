@@ -7,13 +7,18 @@ async function queryDns(server, domain, timeout = 5000) {
   resolver.setServers([server]);
 
   const start = Date.now();
+  let timer;
 
   try {
     await Promise.race([
       resolver.resolve4(domain),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('DNS timeout')), timeout)
-      ),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          // Abort the outstanding query so it doesn't linger after we give up.
+          resolver.cancel();
+          reject(new Error('DNS timeout'));
+        }, timeout);
+      }),
     ]);
 
     const responseTime = Date.now() - start;
@@ -27,6 +32,8 @@ async function queryDns(server, domain, timeout = 5000) {
       success: false,
       responseTimeMs: null,
     };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

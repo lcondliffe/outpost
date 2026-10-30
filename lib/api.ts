@@ -159,6 +159,16 @@ export interface Config {
   retention: {
     days: number;
   };
+  alerts: {
+    webhookUrl: string;
+    ntfyUrl: string;
+    cooldownMinutes: number;
+    speedtestFloorMbps: number;
+    speedtestConsecutive: number;
+    latencyThresholdMs: number;
+    packetLossThresholdPercent: number;
+    degradedChecks: number;
+  };
   server: {
     port: number;
   };
@@ -227,6 +237,14 @@ export const api = {
     }).then((r) => r.json()),
   resetConfig: () =>
     fetch(`/api/config/reset`, { method: 'POST' }).then((r) => r.json()),
+
+  // Alerts
+  sendTestAlert: () =>
+    fetch(`/api/alerts/test`, { method: 'POST' }).then((r) => r.json()) as Promise<{
+      success: boolean;
+      error?: string;
+      results?: Array<{ sink: string; ok: boolean; error?: string }>;
+    }>,
 
   // Health
   getHealth: () => fetchApi<{ status: string; version: string; uptime: number }>('/api/health'),

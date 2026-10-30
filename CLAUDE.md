@@ -70,9 +70,10 @@ npm run dev       # Start development server (node server.js)
 npm run build     # Build Next.js for production (next build)
 npm start         # Start production server (NODE_ENV=production node server.js)
 npm run lint      # Run ESLint via Next.js (next lint)
+npm test          # Alerting tests (node --test src/alerts.test.js)
 ```
 
-There is no test runner configured. No automated tests exist in the project.
+`npm test` runs the alerting tests (`node --test`, no framework). There are no other automated tests.
 
 ## Architecture
 

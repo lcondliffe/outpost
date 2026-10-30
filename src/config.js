@@ -39,6 +39,16 @@ const DEFAULT_CONFIG = {
   retention: {
     days: parseInt(process.env.OUTPOST_RETENTION_DAYS, 10) || 90,
   },
+  alerts: {
+    webhookUrl: '',
+    ntfyUrl: '',
+    cooldownMinutes: 30,
+    speedtestFloorMbps: 0,
+    speedtestConsecutive: 3,
+    latencyThresholdMs: 0,
+    packetLossThresholdPercent: 0,
+    degradedChecks: 5,
+  },
   server: {
     port: parseInt(process.env.OUTPOST_PORT, 10) || 3000,
   },
@@ -61,7 +71,26 @@ const CONSTRAINTS = {
   retention: {
     days: { min: 7, max: 365 },
   },
+  alerts: {
+    cooldownMinutes: { min: 1, max: 1440 },
+    speedtestConsecutive: { min: 1, max: 20 },
+    degradedChecks: { min: 1, max: 60 },
+  },
 };
+
+// Webhook URLs carry their secret in the URL itself, so they are never
+// returned in full from the API. The UI round-trips this placeholder for
+// "unchanged".
+const SECRET_FIELDS = ['webhookUrl', 'ntfyUrl'];
+const SECRET_MASK = '********';
+
+function redactConfig(config) {
+  const alerts = { ...config.alerts };
+  for (const key of SECRET_FIELDS) {
+    if (alerts[key]) alerts[key] = SECRET_MASK;
+  }
+  return { ...config, alerts };
+}
 
 function validateConfig(config) {
   const errors = [];
@@ -116,6 +145,27 @@ function validateConfig(config) {
     }
   }
 
+  for (const key of SECRET_FIELDS) {
+    const val = config.alerts?.[key];
+    if (val && !/^https?:\/\/\S+$/.test(val)) {
+      errors.push(`Alert ${key} must be an http(s) URL`);
+    }
+  }
+
+  for (const [key, range] of Object.entries(CONSTRAINTS.alerts)) {
+    const val = config.alerts?.[key];
+    if (val !== undefined && !(val >= range.min && val <= range.max)) {
+      errors.push(`Alert ${key} must be between ${range.min} and ${range.max}`);
+    }
+  }
+
+  for (const key of ['speedtestFloorMbps', 'latencyThresholdMs', 'packetLossThresholdPercent']) {
+    const val = config.alerts?.[key];
+    if (val !== undefined && !(val >= 0)) {
+      errors.push(`Alert ${key} must be 0 (off) or a positive number`);
+    }
+  }
+
   return errors;
 }
 
@@ -162,6 +212,13 @@ function saveConfig(config) {
 
 function updateConfig(partialConfig) {
   const currentConfig = loadConfig();
+  // A masked secret coming back from the UI means "keep the current value".
+  if (partialConfig.alerts) {
+    partialConfig = { ...partialConfig, alerts: { ...partialConfig.alerts } };
+    for (const key of SECRET_FIELDS) {
+      if (partialConfig.alerts[key] === SECRET_MASK) delete partialConfig.alerts[key];
+    }
+  }
   const newConfig = deepMerge(currentConfig, partialConfig);
 
   const errors = validateConfig(newConfig);
@@ -194,11 +251,13 @@ function reloadConfig() {
 }
 
 module.exports = {
+  loadConfig,
   getConfig,
   reloadConfig,
   updateConfig,
   resetConfig,
   validateConfig,
+  redactConfig,
   DEFAULT_CONFIG,
   CONSTRAINTS,
 };

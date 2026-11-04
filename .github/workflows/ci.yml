@@ -160,6 +160,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # QEMU lets buildx produce the arm64 variant (Raspberry Pi / arm homelab
+      # nodes) on this amd64 runner.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -255,16 +260,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push Docker image
-        if: github.event_name != 'pull_request'
+      # Builds the multi-arch manifest list. Runs on PRs too (without pushing)
+      # so an arm64 build break is caught before merge; the amd64 layers come
+      # straight from the cache written by the local build above.
+      - name: Build & push multi-arch image
         id: push
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: true
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             APP_VERSION=${{ needs.version.outputs.semVer }}
             GIT_SHA=${{ github.sha }}
           cache-from: type=gha
+          cache-to: type=gha,mode=max

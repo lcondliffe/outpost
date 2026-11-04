@@ -10,13 +10,37 @@ test('default config is valid', () => {
 test('validateConfig rejects out-of-range values', () => {
   const errors = validateConfig({
     monitors: {
-      ping: { intervalSeconds: 10, packetCount: 11, targets: new Array(11).fill({}) },
+      ping: {
+        intervalSeconds: 10,
+        packetCount: 11,
+        targets: Array.from({ length: 11 }, () => ({ host: '8.8.8.8' })),
+      },
       speedtest: { intervalHours: 25 },
-      dns: { intervalSeconds: 30, servers: new Array(6).fill({}) },
+      dns: {
+        intervalSeconds: 30,
+        servers: Array.from({ length: 6 }, () => ({ address: '1.1.1.1' })),
+      },
     },
     retention: { days: 6 },
   });
-  assert.strictEqual(errors.length, 7);
+  assert.deepStrictEqual(errors, [
+    'Ping interval must be between 30 and 900 seconds',
+    'Maximum 10 ping targets allowed',
+    'Ping packet count must be between 1 and 10',
+    'Speedtest interval must be between 1 and 24 hours',
+    'DNS interval must be between 60 and 1800 seconds',
+    'Maximum 5 DNS servers allowed',
+    'Retention must be between 7 and 365 days',
+  ]);
+});
+
+test('validateConfig rejects invalid ping targets and DNS server addresses', () => {
+  assert.deepStrictEqual(validateConfig({
+    monitors: { ping: { targets: [{}] }, dns: { servers: [{}] } },
+  }), [
+    'Invalid ping target "undefined": must be a hostname or IP',
+    'Invalid DNS server "undefined": must be an IP address',
+  ]);
 });
 
 test('validateConfig accepts boundary values', () => {

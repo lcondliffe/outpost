@@ -158,7 +158,7 @@ GitHub Actions pipeline (`.github/workflows/ci.yml`) triggers on pushes to `main
 1. **version** — Determines semantic version via GitVersion or tag parsing
 2. **dependency-audit** — `npm audit` + Snyk vulnerability scan
 3. **secret-scan** — Gitleaks secret detection
-4. **build-scan-push** — Docker build, Trivy image scan, push to ghcr.io (skipped on PRs)
+4. **build-scan-push** — Docker build, Trivy image scan + smoke test (amd64), multi-arch (amd64 + arm64) build pushed to ghcr.io (push skipped on PRs)
 
 ## Docker
 

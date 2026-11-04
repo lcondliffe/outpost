@@ -50,6 +50,22 @@ export default function SettingsPage() {
     setSaving(false);
   };
 
+  const handleTestAlert = async () => {
+    setMessage(null);
+    try {
+      const result = await api.sendTestAlert();
+      const detail = result.results
+        ?.map((r) => `${r.sink}: ${r.ok ? 'ok' : r.error}`)
+        .join(', ');
+      setMessage({
+        type: result.success ? 'success' : 'error',
+        text: result.success ? `Test notification sent (${detail})` : result.error || `Test failed (${detail})`,
+      });
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to send test notification' });
+    }
+  };
+
   if (!config) {
     return <div className="text-gray-500">Loading configuration...</div>;
   }
@@ -314,6 +330,70 @@ export default function SettingsPage() {
               className="w-32 px-3 py-2 bg-gray-800 border border-gray-700 rounded"
             />
             <span className="text-xs text-gray-500 ml-2">60-1800 seconds</span>
+          </div>
+        </div>
+      </Card>
+
+      <Card title="Alerts">
+        <div className="space-y-4">
+          {(
+            [
+              ['webhookUrl', 'Webhook URL', 'JSON POST; Discord and Slack webhook URLs also work'],
+              ['ntfyUrl', 'ntfy topic URL', 'e.g. https://ntfy.sh/my-outpost-topic'],
+            ] as const
+          ).map(([key, label, hint]) => (
+            <div key={key}>
+              <label className="block text-sm text-gray-400 mb-1">{label}</label>
+              <input
+                type="url"
+                value={config.alerts[key]}
+                onChange={(e) =>
+                  setConfig({ ...config, alerts: { ...config.alerts, [key]: e.target.value.trim() } })
+                }
+                placeholder="Not configured"
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded"
+              />
+              <span className="text-xs text-gray-500">{hint}</span>
+            </div>
+          ))}
+
+          {(
+            [
+              ['cooldownMinutes', 'Cooldown between repeat alerts (minutes)', 1, '1-1440'],
+              ['speedtestFloorMbps', 'Download floor (Mbps)', 0, '0 = off'],
+              ['speedtestConsecutive', 'Consecutive slow speedtests before alerting', 1, '1-20'],
+              ['latencyThresholdMs', 'Latency threshold (ms)', 0, '0 = off'],
+              ['packetLossThresholdPercent', 'Packet loss threshold (%)', 0, '0 = off'],
+              ['degradedChecks', 'Consecutive degraded pings before alerting', 1, '1-60'],
+            ] as const
+          ).map(([key, label, min, hint]) => (
+            <div key={key}>
+              <label className="block text-sm text-gray-400 mb-1">{label}</label>
+              <input
+                type="number"
+                min={min}
+                value={config.alerts[key]}
+                onChange={(e) =>
+                  setConfig({
+                    ...config,
+                    alerts: { ...config.alerts, [key]: parseFloat(e.target.value) || min },
+                  })
+                }
+                className="w-32 px-3 py-2 bg-gray-800 border border-gray-700 rounded"
+              />
+              <span className="text-xs text-gray-500 ml-2">{hint}</span>
+            </div>
+          ))}
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleTestAlert}
+              disabled={saving}
+              className="px-4 py-2 border border-gray-700 hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50"
+            >
+              Send Test Notification
+            </button>
+            <span className="text-xs text-gray-500">Uses saved settings — save changes first</span>
           </div>
         </div>
       </Card>

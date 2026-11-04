@@ -2,6 +2,7 @@ const { execFile, spawn } = require('child_process');
 const { promisify } = require('util');
 const db = require('../storage/database');
 const { getConfig } = require('../config');
+const alerts = require('../alerts');
 
 const execFileAsync = promisify(execFile);
 
@@ -278,6 +279,7 @@ async function runSpeedtestMonitor(onProgress = null) {
     };
 
     db.insertSpeedtest(data);
+    alerts.onSpeedtest(data).catch((err) => console.error('Alert error:', err));
 
     if (result.success) {
       console.log(

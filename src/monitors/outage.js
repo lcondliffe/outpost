@@ -1,5 +1,6 @@
 const db = require('../storage/database');
 const { getConfig } = require('../config');
+const alerts = require('../alerts');
 
 // Shared mutable state. This module gets instantiated multiple times in one
 // process (server.js loads it via plain require, while Next.js bundles a
@@ -57,6 +58,7 @@ function checkOutageConditions(pingResults, dnsResults) {
       });
 
       console.log(`OUTAGE STARTED: ID ${outageId}, affected: ${affectedServices.join(', ')}`);
+      alerts.onOutageStarted(outageId, affectedServices).catch((err) => console.error('Alert error:', err));
       return { action: 'started', outageId, affectedServices };
     }
   }
@@ -76,6 +78,7 @@ function checkOutageConditions(pingResults, dnsResults) {
       state.consecutivePingFailures = 0;
 
       console.log(`OUTAGE ENDED: ID ${activeOutage.id}, duration: ${durationSeconds}s`);
+      alerts.onOutageEnded(activeOutage.id, durationSeconds).catch((err) => console.error('Alert error:', err));
       return { action: 'ended', outageId: activeOutage.id, durationSeconds };
     }
   }

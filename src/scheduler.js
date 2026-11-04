@@ -137,4 +137,6 @@ module.exports = {
   runPingAndCheckOutage,
   runDnsAndCheckOutage,
   runSpeedtest,
+  secondsToCron,
+  hoursToCron,
 };

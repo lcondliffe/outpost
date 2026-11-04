@@ -70,9 +70,10 @@ npm run dev       # Start development server (node server.js)
 npm run build     # Build Next.js for production (next build)
 npm start         # Start production server (NODE_ENV=production node server.js)
 npm run lint      # Run ESLint via Next.js (next lint)
+npm test          # Run unit tests (node:test, test/**/*.test.js)
 ```
 
-There is no test runner configured. No automated tests exist in the project.
+Tests use Node's built-in `node:test` + `node:assert` (no extra deps). Start each test file with `require('./setup')`, which points `OUTPOST_DATA_DIR` at a temp dir so config and SQLite are isolated; each file runs in its own process.
 
 ## Architecture
 

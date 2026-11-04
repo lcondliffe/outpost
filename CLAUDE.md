@@ -7,7 +7,7 @@ Outpost is a self-hosted, Docker-based home network health monitor. It continuou
 ## Tech Stack
 
 - **Frontend:** Next.js 15 (App Router), React 19, TypeScript 5.7, Tailwind CSS 3.4, Chart.js 4.4
-- **Backend:** Node.js 20+, Express-less HTTP server (native `http` + Next.js handler), SQLite via better-sqlite3
+- **Backend:** Node.js 22+, Express-less HTTP server (native `http` + Next.js handler), SQLite via better-sqlite3
 - **Scheduling:** node-cron for periodic monitoring tasks
 - **Containerization:** Docker (Node 22-alpine, multi-stage build)
 - **CI/CD:** GitHub Actions → GitHub Container Registry (ghcr.io)

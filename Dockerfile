@@ -22,7 +22,10 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+# Version info (short SHA) is inlined into the Next.js build (see next.config.js)
+ARG APP_VERSION=dev
+ARG GIT_SHA=unknown
+RUN APP_VERSION=$APP_VERSION GIT_SHA=$GIT_SHA npm run build
 
 # Production image
 FROM node:22-alpine AS runner

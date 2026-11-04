@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Card from '@/components/ui/Card';
 import TimeRangeSelect from '@/components/ui/TimeRangeSelect';
+import ExportButtons from '@/components/ui/ExportButtons';
 import SpeedChart from '@/components/charts/SpeedChart';
 import SpeedtestLiveProgress from '@/components/dashboard/SpeedtestLiveProgress';
 import { useSpeedtestJob } from '@/lib/useSpeedtestJob';
@@ -55,6 +56,7 @@ export default function SpeedtestPage() {
           >
             {isRunning ? 'Running...' : 'Run Speedtest'}
           </button>
+          <ExportButtons type="speedtest" timeRange={timeRange} />
           <TimeRangeSelect value={timeRange} onChange={setTimeRange} />
         </div>
       </div>

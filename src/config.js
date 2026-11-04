@@ -8,7 +8,7 @@ const DEFAULT_CONFIG = {
   monitors: {
     ping: {
       enabled: true,
-      intervalSeconds: parseInt(process.env.OUTPOST_PING_INTERVAL, 10) || 60,
+      intervalSeconds: 60,
       targets: [
         { host: '8.8.8.8', name: 'Google DNS' },
         { host: '1.1.1.1', name: 'Cloudflare DNS' },
@@ -18,12 +18,12 @@ const DEFAULT_CONFIG = {
     },
     speedtest: {
       enabled: true,
-      intervalHours: parseInt(process.env.OUTPOST_SPEEDTEST_INTERVAL, 10) || 1,
+      intervalHours: 1,
       serverId: null,
     },
     dns: {
       enabled: true,
-      intervalSeconds: parseInt(process.env.OUTPOST_DNS_INTERVAL, 10) || 300,
+      intervalSeconds: 300,
       servers: [
         { address: '8.8.8.8', name: 'Google' },
         { address: '1.1.1.1', name: 'Cloudflare' },
@@ -37,12 +37,31 @@ const DEFAULT_CONFIG = {
     pingSuccessesForRecovery: 2,
   },
   retention: {
-    days: parseInt(process.env.OUTPOST_RETENTION_DAYS, 10) || 90,
+    days: 90,
   },
   server: {
-    port: parseInt(process.env.OUTPOST_PORT, 10) || 3000,
+    port: 3000,
   },
 };
+
+// Env vars always win over config.json (applied on every load, never persisted).
+const ENV_OVERRIDES = [
+  ['OUTPOST_PING_INTERVAL', ['monitors', 'ping', 'intervalSeconds']],
+  ['OUTPOST_SPEEDTEST_INTERVAL', ['monitors', 'speedtest', 'intervalHours']],
+  ['OUTPOST_DNS_INTERVAL', ['monitors', 'dns', 'intervalSeconds']],
+  ['OUTPOST_RETENTION_DAYS', ['retention', 'days']],
+  ['OUTPOST_PORT', ['server', 'port']],
+];
+
+function applyEnvOverrides(config) {
+  let result = config;
+  for (const [name, keys] of ENV_OVERRIDES) {
+    const val = parseInt(process.env[name], 10);
+    if (Number.isNaN(val)) continue;
+    result = deepMerge(result, keys.reduceRight((acc, key) => ({ [key]: acc }), val));
+  }
+  return result;
+}
 
 // Configuration constraints
 const CONSTRAINTS = {
@@ -131,7 +150,8 @@ function deepMerge(target, source) {
   return result;
 }
 
-function loadConfig() {
+// Persisted config (defaults + config.json), without env overrides.
+function loadFileConfig() {
   // Ensure data directory exists
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -153,6 +173,10 @@ function loadConfig() {
   return { ...DEFAULT_CONFIG };
 }
 
+function loadConfig() {
+  return applyEnvOverrides(loadFileConfig());
+}
+
 function saveConfig(config) {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -161,8 +185,7 @@ function saveConfig(config) {
 }
 
 function updateConfig(partialConfig) {
-  const currentConfig = loadConfig();
-  const newConfig = deepMerge(currentConfig, partialConfig);
+  const newConfig = deepMerge(loadFileConfig(), partialConfig);
 
   const errors = validateConfig(newConfig);
   if (errors.length > 0) {
@@ -170,12 +193,12 @@ function updateConfig(partialConfig) {
   }
 
   saveConfig(newConfig);
-  return newConfig;
+  return applyEnvOverrides(newConfig);
 }
 
 function resetConfig() {
   saveConfig(DEFAULT_CONFIG);
-  return { ...DEFAULT_CONFIG };
+  return applyEnvOverrides(DEFAULT_CONFIG);
 }
 
 // Export singleton config instance

@@ -38,8 +38,9 @@ export default function DnsPage() {
         };
       }
       acc[key].total++;
+      // success is 0/1 for raw rows, a 0..1 fraction for downsampled buckets
+      acc[key].successful += r.success;
       if (r.success) {
-        acc[key].successful++;
         if (r.response_time_ms !== null) {
           acc[key].responseTimes.push(r.response_time_ms);
         }

@@ -133,8 +133,7 @@ function startScheduler() {
 
   // Schedule WAN IP tracking (opt-in; older config files lack this block)
   if (config.monitors.wanIp?.enabled) {
-    const wanIpTask = cron.schedule(secondsToCron(config.monitors.wanIp.intervalSeconds), runWanIp);
-    scheduledTasks.push(wanIpTask);
+    scheduledTasks.push(every(config.monitors.wanIp.intervalSeconds * 1000, runWanIp));
     runWanIp();
   }
 

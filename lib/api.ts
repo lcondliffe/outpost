@@ -19,7 +19,7 @@ export interface PingResult {
   rtt_avg: number | null;
   rtt_max: number | null;
   packet_loss: number;
-  success: number;
+  success: number; // 0/1 raw; 0..1 fraction when the API downsamples long ranges
 }
 
 export interface SpeedtestResult {
@@ -42,7 +42,9 @@ export interface DnsResult {
   server_name: string;
   query_domain: string;
   response_time_ms: number | null;
-  success: number;
+  response_time_min?: number | null; // downsampled rows only
+  response_time_max?: number | null;
+  success: number; // 0/1 raw; 0..1 fraction when the API downsamples long ranges
 }
 
 export interface Outage {

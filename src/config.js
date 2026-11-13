@@ -1,4 +1,5 @@
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 
 const DATA_DIR = process.env.OUTPOST_DATA_DIR || './data';
@@ -8,7 +9,7 @@ const DEFAULT_CONFIG = {
   monitors: {
     ping: {
       enabled: true,
-      intervalSeconds: parseInt(process.env.OUTPOST_PING_INTERVAL, 10) || 60,
+      intervalSeconds: 60,
       targets: [
         { host: '8.8.8.8', name: 'Google DNS' },
         { host: '1.1.1.1', name: 'Cloudflare DNS' },
@@ -18,12 +19,12 @@ const DEFAULT_CONFIG = {
     },
     speedtest: {
       enabled: true,
-      intervalHours: parseInt(process.env.OUTPOST_SPEEDTEST_INTERVAL, 10) || 1,
+      intervalHours: 1,
       serverId: null,
     },
     dns: {
       enabled: true,
-      intervalSeconds: parseInt(process.env.OUTPOST_DNS_INTERVAL, 10) || 300,
+      intervalSeconds: 300,
       servers: [
         { address: '8.8.8.8', name: 'Google' },
         { address: '1.1.1.1', name: 'Cloudflare' },
@@ -42,12 +43,31 @@ const DEFAULT_CONFIG = {
     pingSuccessesForRecovery: 2,
   },
   retention: {
-    days: parseInt(process.env.OUTPOST_RETENTION_DAYS, 10) || 90,
+    days: 90,
   },
   server: {
-    port: parseInt(process.env.OUTPOST_PORT, 10) || 3000,
+    port: 3000,
   },
 };
+
+// Env vars always win over config.json (applied on every load, never persisted).
+const ENV_OVERRIDES = [
+  ['OUTPOST_PING_INTERVAL', ['monitors', 'ping', 'intervalSeconds']],
+  ['OUTPOST_SPEEDTEST_INTERVAL', ['monitors', 'speedtest', 'intervalHours']],
+  ['OUTPOST_DNS_INTERVAL', ['monitors', 'dns', 'intervalSeconds']],
+  ['OUTPOST_RETENTION_DAYS', ['retention', 'days']],
+  ['OUTPOST_PORT', ['server', 'port']],
+];
+
+function applyEnvOverrides(config) {
+  let result = config;
+  for (const [name, keys] of ENV_OVERRIDES) {
+    const val = parseInt(process.env[name], 10);
+    if (Number.isNaN(val)) continue;
+    result = deepMerge(result, keys.reduceRight((acc, key) => ({ [key]: acc }), val));
+  }
+  return result;
+}
 
 // Configuration constraints
 const CONSTRAINTS = {
@@ -55,6 +75,7 @@ const CONSTRAINTS = {
     intervalSeconds: { min: 30, max: 900 },
     maxTargets: 10,
     packetCount: { min: 1, max: 10 },
+    timeout: { min: 1000, max: 30000 },
   },
   speedtest: {
     intervalHours: { min: 1, max: 24 },
@@ -62,14 +83,66 @@ const CONSTRAINTS = {
   dns: {
     intervalSeconds: { min: 60, max: 1800 },
     maxServers: 5,
+    maxTestDomains: 10,
+    timeout: { min: 1000, max: 30000 },
+  },
+  outageDetection: {
+    pingFailuresForOutage: { min: 1, max: 20 },
+    pingSuccessesForRecovery: { min: 1, max: 20 },
   },
   retention: {
     days: { min: 7, max: 365 },
   },
 };
 
+// RFC 1123 hostname (labels of letters/digits/hyphens, no leading/trailing hyphen)
+const HOSTNAME_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i;
+
+function isHostOrIp(value) {
+  return typeof value === 'string' && (net.isIP(value) !== 0 || HOSTNAME_RE.test(value));
+}
+
+function checkInt(errors, val, range, label) {
+  if (val === undefined) return;
+  if (!Number.isInteger(val) || val < range.min || val > range.max) {
+    errors.push(`${label} must be an integer between ${range.min} and ${range.max}`);
+  }
+}
+
 function validateConfig(config) {
   const errors = [];
+  const ping = config.monitors?.ping;
+  const dns = config.monitors?.dns;
+  const speedtest = config.monitors?.speedtest;
+
+  checkInt(errors, ping?.timeout, CONSTRAINTS.ping.timeout, 'Ping timeout (ms)');
+  checkInt(errors, dns?.timeout, CONSTRAINTS.dns.timeout, 'DNS timeout (ms)');
+  checkInt(errors, config.outageDetection?.pingFailuresForOutage,
+    CONSTRAINTS.outageDetection.pingFailuresForOutage, 'Ping failures for outage');
+  checkInt(errors, config.outageDetection?.pingSuccessesForRecovery,
+    CONSTRAINTS.outageDetection.pingSuccessesForRecovery, 'Ping successes for recovery');
+
+  for (const t of ping?.targets || []) {
+    if (!isHostOrIp(t?.host)) errors.push(`Invalid ping target "${t?.host}": must be a hostname or IP`);
+  }
+  for (const s of dns?.servers || []) {
+    if (net.isIP(s?.address) === 0) errors.push(`Invalid DNS server "${s?.address}": must be an IP address`);
+  }
+  if (dns?.testDomains !== undefined) {
+    if (!Array.isArray(dns.testDomains) || dns.testDomains.length === 0) {
+      errors.push('At least one DNS test domain is required');
+    } else if (dns.testDomains.length > CONSTRAINTS.dns.maxTestDomains) {
+      errors.push(`Maximum ${CONSTRAINTS.dns.maxTestDomains} DNS test domains allowed`);
+    }
+    for (const d of Array.isArray(dns.testDomains) ? dns.testDomains : []) {
+      if (typeof d !== 'string' || net.isIP(d) !== 0 || !HOSTNAME_RE.test(d)) {
+        errors.push(`Invalid DNS test domain "${d}"`);
+      }
+    }
+  }
+  if (speedtest?.serverId != null && !/^\d{1,10}$/.test(String(speedtest.serverId))) {
+    errors.push('Speedtest server ID must be numeric');
+  }
 
   // Validate ping interval
   if (config.monitors?.ping?.intervalSeconds !== undefined) {
@@ -136,7 +209,8 @@ function deepMerge(target, source) {
   return result;
 }
 
-function loadConfig() {
+// Persisted config (defaults + config.json), without env overrides.
+function loadFileConfig() {
   // Ensure data directory exists
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -158,6 +232,10 @@ function loadConfig() {
   return { ...DEFAULT_CONFIG };
 }
 
+function loadConfig() {
+  return applyEnvOverrides(loadFileConfig());
+}
+
 function saveConfig(config) {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -166,8 +244,7 @@ function saveConfig(config) {
 }
 
 function updateConfig(partialConfig) {
-  const currentConfig = loadConfig();
-  const newConfig = deepMerge(currentConfig, partialConfig);
+  const newConfig = deepMerge(loadFileConfig(), partialConfig);
 
   const errors = validateConfig(newConfig);
   if (errors.length > 0) {
@@ -175,12 +252,12 @@ function updateConfig(partialConfig) {
   }
 
   saveConfig(newConfig);
-  return newConfig;
+  return applyEnvOverrides(newConfig);
 }
 
 function resetConfig() {
   saveConfig(DEFAULT_CONFIG);
-  return { ...DEFAULT_CONFIG };
+  return applyEnvOverrides(DEFAULT_CONFIG);
 }
 
 // Export singleton config instance

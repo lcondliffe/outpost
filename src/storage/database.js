@@ -18,6 +18,13 @@ function getDb() {
   const dbPath = path.join(DATA_DIR, 'outpost.db');
   dbInstance = new Database(dbPath);
 
+  // Incremental auto-vacuum lets retention cleanup reclaim freed pages without
+  // a full nightly VACUUM. Existing DBs need one VACUUM to switch mode.
+  if (dbInstance.pragma('auto_vacuum', { simple: true }) !== 2) {
+    dbInstance.pragma('auto_vacuum = INCREMENTAL');
+    dbInstance.exec('VACUUM');
+  }
+
   // Enable WAL mode for better concurrent access
   dbInstance.pragma('journal_mode = WAL');
 
@@ -283,13 +290,15 @@ function getDb() {
 function runRetentionCleanup(retentionDays) {
   const db = getDb();
   const cutoff = Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
-  const transaction = db.transaction(() => {
-    stmts.cleanupPing.run(cutoff);
-    stmts.cleanupSpeedtest.run(cutoff);
-    stmts.cleanupDns.run(cutoff);
-  });
-  transaction();
-  db.exec('VACUUM');
+  const start = Date.now();
+  const deleted = db.transaction(() =>
+    stmts.cleanupPing.run(cutoff).changes +
+    stmts.cleanupSpeedtest.run(cutoff).changes +
+    stmts.cleanupDns.run(cutoff).changes
+  )();
+  db.exec('PRAGMA incremental_vacuum');
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  return { deleted, ms: Date.now() - start };
 }
 
 module.exports = {

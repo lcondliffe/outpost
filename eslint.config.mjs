@@ -33,7 +33,7 @@ const eslintConfig = [
   },
   // Plain CommonJS Node backend.
   {
-    files: ['src/**/*.js', 'server.js'],
+    files: ['src/**/*.js', 'server.js', 'test/**/*.js'],
     languageOptions: {
       sourceType: 'commonjs',
       globals: {

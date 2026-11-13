@@ -118,6 +118,21 @@ function getDb() {
     ORDER BY timestamp DESC
   `);
 
+  // Downsampled ping series: one row per (bucket, target), same columns as a
+  // raw row. min/max are kept so spikes survive; success becomes the fraction
+  // of successful checks in the bucket (0..1).
+  stmts.getPingBuckets = dbInstance.prepare(`
+    SELECT MIN(id) AS id,
+      (timestamp / CAST(@bucket AS INTEGER)) * CAST(@bucket AS INTEGER) AS timestamp,
+      target, MAX(target_name) AS target_name,
+      MIN(rtt_min) AS rtt_min, AVG(rtt_avg) AS rtt_avg, MAX(rtt_max) AS rtt_max,
+      AVG(packet_loss) AS packet_loss, AVG(success) AS success
+    FROM ping_results
+    WHERE timestamp >= @start AND timestamp <= @end AND (@target IS NULL OR target = @target)
+    GROUP BY timestamp / CAST(@bucket AS INTEGER), target
+    ORDER BY timestamp DESC
+  `);
+
   stmts.getLatestPingByTarget = dbInstance.prepare(`
     SELECT * FROM ping_results
     WHERE target = ?
@@ -177,6 +192,21 @@ function getDb() {
   stmts.getDnsResultsByServer = dbInstance.prepare(`
     SELECT * FROM dns_results
     WHERE timestamp >= ? AND timestamp <= ? AND server = ?
+    ORDER BY timestamp DESC
+  `);
+
+  // Downsampled DNS series, one row per (bucket, server, domain). Adds
+  // response_time_min/max alongside the averaged response_time_ms.
+  stmts.getDnsBuckets = dbInstance.prepare(`
+    SELECT MIN(id) AS id,
+      (timestamp / CAST(@bucket AS INTEGER)) * CAST(@bucket AS INTEGER) AS timestamp,
+      server, MAX(server_name) AS server_name, query_domain,
+      AVG(response_time_ms) AS response_time_ms,
+      MIN(response_time_ms) AS response_time_min, MAX(response_time_ms) AS response_time_max,
+      AVG(success) AS success
+    FROM dns_results
+    WHERE timestamp >= @start AND timestamp <= @end AND (@server IS NULL OR server = @server)
+    GROUP BY timestamp / CAST(@bucket AS INTEGER), server, query_domain
     ORDER BY timestamp DESC
   `);
 
@@ -287,6 +317,16 @@ function getDb() {
   return dbInstance;
 }
 
+// Bucket size (ms) for a time-series query over [start, end]; 0 = raw rows.
+function pickBucketMs(start, end) {
+  const span = end - start;
+  const HOUR = 60 * 60 * 1000;
+  if (span <= 6 * HOUR) return 0;
+  if (span <= 24 * HOUR) return 60 * 1000;
+  if (span <= 7 * 24 * HOUR) return 5 * 60 * 1000;
+  return HOUR;
+}
+
 function runRetentionCleanup(retentionDays) {
   const db = getDb();
   const cutoff = Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
@@ -311,12 +351,14 @@ module.exports = {
       data.rttMin, data.rttAvg, data.rttMax, data.packetLoss, data.success ? 1 : 0
     );
   },
-  getPingResults: (start, end) => {
+  getPingResults: (start, end, bucket = 0) => {
     getDb();
+    if (bucket > 0) return stmts.getPingBuckets.all({ start, end, bucket, target: null });
     return stmts.getPingResults.all(start, end);
   },
-  getPingResultsByTarget: (start, end, target) => {
+  getPingResultsByTarget: (start, end, target, bucket = 0) => {
     getDb();
+    if (bucket > 0) return stmts.getPingBuckets.all({ start, end, bucket, target });
     return stmts.getPingResultsByTarget.all(start, end, target);
   },
   getLatestPingByTarget: (target) => {
@@ -358,12 +400,14 @@ module.exports = {
       data.queryDomain, data.responseTimeMs, data.success ? 1 : 0
     );
   },
-  getDnsResults: (start, end) => {
+  getDnsResults: (start, end, bucket = 0) => {
     getDb();
+    if (bucket > 0) return stmts.getDnsBuckets.all({ start, end, bucket, server: null });
     return stmts.getDnsResults.all(start, end);
   },
-  getDnsResultsByServer: (start, end, server) => {
+  getDnsResultsByServer: (start, end, server, bucket = 0) => {
     getDb();
+    if (bucket > 0) return stmts.getDnsBuckets.all({ start, end, bucket, server });
     return stmts.getDnsResultsByServer.all(start, end, server);
   },
   getLatestDns: () => {
@@ -436,6 +480,8 @@ module.exports = {
       total_downtime_seconds: totalDowntimeMs / 1000,
     };
   },
+
+  pickBucketMs,
 
   // Maintenance
   runRetentionCleanup,

@@ -41,8 +41,9 @@ export default function LatencyPage() {
         };
       }
       acc[key].total++;
+      // success is 0/1 for raw rows, a 0..1 fraction for downsampled buckets
+      acc[key].successful += ping.success;
       if (ping.success) {
-        acc[key].successful++;
         if (ping.rtt_avg !== null) acc[key].latencies.push(ping.rtt_avg);
       }
       if (ping.packet_loss !== null) acc[key].packetLoss.push(ping.packet_loss);

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Card from '@/components/ui/Card';
 import TimeRangeSelect from '@/components/ui/TimeRangeSelect';
+import ExportButtons from '@/components/ui/ExportButtons';
 import LatencyChart from '@/components/charts/LatencyChart';
 import { api, getPeriodMs, PingResult } from '@/lib/api';
 
@@ -67,7 +68,10 @@ export default function LatencyPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-2xl font-bold">Latency Monitoring</h1>
-        <TimeRangeSelect value={timeRange} onChange={setTimeRange} />
+        <div className="flex items-center gap-3 flex-wrap">
+          <ExportButtons type="ping" timeRange={timeRange} />
+          <TimeRangeSelect value={timeRange} onChange={setTimeRange} />
+        </div>
       </div>
 
       <Card title="Latency Over Time">

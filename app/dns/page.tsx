@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Card from '@/components/ui/Card';
 import TimeRangeSelect from '@/components/ui/TimeRangeSelect';
+import ExportButtons from '@/components/ui/ExportButtons';
 import { api, getPeriodMs, DnsResult } from '@/lib/api';
 
 export default function DnsPage() {
@@ -68,7 +69,10 @@ export default function DnsPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-2xl font-bold">DNS Health</h1>
-        <TimeRangeSelect value={timeRange} onChange={setTimeRange} />
+        <div className="flex items-center gap-3 flex-wrap">
+          <ExportButtons type="dns" timeRange={timeRange} />
+          <TimeRangeSelect value={timeRange} onChange={setTimeRange} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

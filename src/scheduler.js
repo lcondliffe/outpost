@@ -63,8 +63,8 @@ async function runRetention() {
   try {
     const config = getConfig();
     console.log(`Running retention cleanup (${config.retention.days} days)...`);
-    db.runRetentionCleanup(config.retention.days);
-    console.log('Retention cleanup complete');
+    const { deleted, ms } = db.runRetentionCleanup(config.retention.days);
+    console.log(`Retention cleanup complete: ${deleted} rows deleted in ${ms}ms`);
   } catch (err) {
     console.error('Retention cleanup error:', err);
   }
@@ -137,4 +137,6 @@ module.exports = {
   runPingAndCheckOutage,
   runDnsAndCheckOutage,
   runSpeedtest,
+  secondsToCron,
+  hoursToCron,
 };

@@ -11,15 +11,21 @@ let scheduledTasks = [];
 let lastPingResults = [];
 let lastDnsResults = [];
 
-function secondsToCron(seconds) {
-  if (seconds < 60) {
-    return `*/${seconds} * * * * *`;
-  }
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) {
-    return `*/${minutes} * * * *`;
-  }
-  return `0 */${Math.round(minutes / 60)} * * *`;
+// Fixed-interval timers rather than cron step expressions: `*/45` seconds or
+// `*/7` hours only give an even cadence when the interval divides its unit (AGT-425).
+// Returns a { stop } handle like a cron task. First run after firstDelayMs (default: one interval).
+function every(intervalMs, fn, firstDelayMs = intervalMs) {
+  let interval;
+  const timeout = setTimeout(() => {
+    fn();
+    interval = setInterval(fn, intervalMs);
+  }, firstDelayMs);
+  return {
+    stop() {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    },
+  };
 }
 
 // Speedtest.net rejects the server-list fetch at exactly the top of the hour,
@@ -27,11 +33,12 @@ function secondsToCron(seconds) {
 // minute offset (stable for the lifetime of the process) to stay out of the stampede.
 const speedtestMinuteOffset = 2 + Math.floor(Math.random() * 56);
 
-function hoursToCron(hours, minute = 0) {
-  if (hours === 1) {
-    return `${minute} * * * *`;
-  }
-  return `${minute} */${hours} * * *`;
+// ms from now until the next wall-clock time at `minute` past the hour.
+function msUntilMinute(minute, now = new Date()) {
+  const next = new Date(now);
+  next.setMinutes(minute, 0, 0);
+  if (next <= now) next.setHours(next.getHours() + 1);
+  return next - now;
 }
 
 async function runPingAndCheckOutage() {
@@ -65,8 +72,8 @@ async function runRetention() {
   try {
     const config = getConfig();
     console.log(`Running retention cleanup (${config.retention.days} days)...`);
-    db.runRetentionCleanup(config.retention.days);
-    console.log('Retention cleanup complete');
+    const { deleted, ms } = db.runRetentionCleanup(config.retention.days);
+    console.log(`Retention cleanup complete: ${deleted} rows deleted in ${ms}ms`);
   } catch (err) {
     console.error('Retention cleanup error:', err);
   }
@@ -90,9 +97,7 @@ function startScheduler() {
 
   // Schedule ping monitor
   if (config.monitors.ping.enabled) {
-    const pingCron = secondsToCron(config.monitors.ping.intervalSeconds);
-    const pingTask = cron.schedule(pingCron, runPingAndCheckOutage);
-    scheduledTasks.push(pingTask);
+    scheduledTasks.push(every(config.monitors.ping.intervalSeconds * 1000, runPingAndCheckOutage));
 
     // Run immediately on start
     runPingAndCheckOutage();
@@ -100,9 +105,7 @@ function startScheduler() {
 
   // Schedule DNS monitor
   if (config.monitors.dns.enabled) {
-    const dnsCron = secondsToCron(config.monitors.dns.intervalSeconds);
-    const dnsTask = cron.schedule(dnsCron, runDnsAndCheckOutage);
-    scheduledTasks.push(dnsTask);
+    scheduledTasks.push(every(config.monitors.dns.intervalSeconds * 1000, runDnsAndCheckOutage));
 
     // Run immediately on start
     runDnsAndCheckOutage();
@@ -110,10 +113,12 @@ function startScheduler() {
 
   // Schedule speedtest
   if (config.monitors.speedtest.enabled) {
-    const speedtestCron = hoursToCron(config.monitors.speedtest.intervalHours, speedtestMinuteOffset);
-    console.log(`  - Speedtest schedule: "${speedtestCron}" (offset ${speedtestMinuteOffset}m past the hour)`);
-    const speedtestTask = cron.schedule(speedtestCron, runSpeedtest);
-    scheduledTasks.push(speedtestTask);
+    console.log(`  - Speedtest offset: ${speedtestMinuteOffset}m past the hour`);
+    scheduledTasks.push(every(
+      config.monitors.speedtest.intervalHours * 3600 * 1000,
+      runSpeedtest,
+      msUntilMinute(speedtestMinuteOffset),
+    ));
 
     // Run speedtest 30 seconds after start (to not block startup)
     setTimeout(runSpeedtest, 30000);
@@ -139,4 +144,6 @@ module.exports = {
   runPingAndCheckOutage,
   runDnsAndCheckOutage,
   runSpeedtest,
+  every,
+  msUntilMinute,
 };

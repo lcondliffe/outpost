@@ -130,6 +130,13 @@ export interface OutageStatus {
   consecutivePingSuccesses: number;
 }
 
+export interface SpeedtestServer {
+  id: string;
+  name: string;
+  location: string;
+  country: string;
+}
+
 export interface Config {
   monitors: {
     ping: {
@@ -226,6 +233,9 @@ export const api = {
 
   // Status
   getStatus: () => fetchApi<OutageStatus>('/api/status'),
+
+  getSpeedtestServers: () =>
+    fetchApi<{ servers: SpeedtestServer[] }>('/api/speedtest/servers'),
 
   // Config
   getConfig: () => fetchApi<{ config: Config; constraints: object }>('/api/config'),

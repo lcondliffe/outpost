@@ -1,17 +1,15 @@
-// Run: npm test
+require('./setup');
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-alerts-'));
-process.env.OUTPOST_DATA_DIR = dir;
+const dir = process.env.OUTPOST_DATA_DIR;
 const writeAlerts = (alerts) =>
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ alerts }));
 
-const { redactConfig, updateConfig, loadConfig } = require('./config');
-const alerts = require('./alerts');
+const { redactConfig, updateConfig, loadConfig } = require('../src/config');
+const alerts = require('../src/alerts');
 
 let sent = [];
 let down = false;

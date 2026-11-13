@@ -2,16 +2,63 @@
 
 import { useState, useEffect } from 'react';
 import Card from '@/components/ui/Card';
-import { api, Config } from '@/lib/api';
+import { api, Config, SpeedtestServer } from '@/lib/api';
+
+function NumberField({
+  label,
+  value,
+  min,
+  max,
+  unit,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  unit: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div>
+      <label className="block text-sm text-gray-400 mb-1">{label}</label>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(parseInt(e.target.value, 10) || min)}
+        className="w-32 px-3 py-2 bg-gray-800 border border-gray-700 rounded"
+      />
+      <span className="text-xs text-gray-500 ml-2">
+        {min}-{max} {unit}
+      </span>
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const [config, setConfig] = useState<Config | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [servers, setServers] = useState<SpeedtestServer[] | null>(null);
+
   useEffect(() => {
     api.getConfig().then((data) => setConfig(data.config));
+    api
+      .getSpeedtestServers()
+      .then((data) => setServers(data.servers))
+      .catch(() => setServers([]));
   }, []);
+
+  // Apply a mutation to a deep copy of the config
+  const update = (fn: (draft: Config) => void) => {
+    if (!config) return;
+    const next = structuredClone(config);
+    fn(next);
+    setConfig(next);
+  };
 
   const handleSave = async () => {
     if (!config) return;
@@ -150,6 +197,24 @@ export default function SettingsPage() {
             <span className="text-xs text-gray-500 ml-2">30-900 seconds</span>
           </div>
 
+          <NumberField
+            label="Packet count"
+            value={config.monitors.ping.packetCount}
+            min={1}
+            max={10}
+            unit="packets"
+            onChange={(v) => update((c) => { c.monitors.ping.packetCount = v; })}
+          />
+
+          <NumberField
+            label="Timeout (ms)"
+            value={config.monitors.ping.timeout}
+            min={1000}
+            max={30000}
+            unit="ms"
+            onChange={(v) => update((c) => { c.monitors.ping.timeout = v; })}
+          />
+
           <div>
             <label className="block text-sm text-gray-400 mb-2">Targets</label>
             <div className="space-y-2">
@@ -283,6 +348,52 @@ export default function SettingsPage() {
             />
             <span className="text-xs text-gray-500 ml-2">1-24 hours</span>
           </div>
+
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Server</label>
+            {servers && servers.length > 0 ? (
+              <select
+                value={config.monitors.speedtest.serverId ?? ''}
+                onChange={(e) =>
+                  update((c) => {
+                    c.monitors.speedtest.serverId = e.target.value || null;
+                  })
+                }
+                className="w-full max-w-md px-3 py-2 bg-gray-800 border border-gray-700 rounded"
+              >
+                <option value="">Auto-select</option>
+                {config.monitors.speedtest.serverId &&
+                  !servers.some((s) => s.id === config.monitors.speedtest.serverId) && (
+                    <option value={config.monitors.speedtest.serverId}>
+                      Server #{config.monitors.speedtest.serverId}
+                    </option>
+                  )}
+                {servers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.location}, {s.country}) #{s.id}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={config.monitors.speedtest.serverId ?? ''}
+                  onChange={(e) =>
+                    update((c) => {
+                      c.monitors.speedtest.serverId = e.target.value.trim() || null;
+                    })
+                  }
+                  placeholder="Auto-select"
+                  className="w-32 px-3 py-2 bg-gray-800 border border-gray-700 rounded"
+                />
+                <span className="text-xs text-gray-500 ml-2">
+                  {servers ? 'Server list unavailable; enter an ID or leave blank' : 'Loading servers...'}
+                </span>
+              </>
+            )}
+          </div>
         </div>
       </Card>
 
@@ -331,6 +442,77 @@ export default function SettingsPage() {
             />
             <span className="text-xs text-gray-500 ml-2">60-1800 seconds</span>
           </div>
+
+          <NumberField
+            label="Timeout (ms)"
+            value={config.monitors.dns.timeout}
+            min={1000}
+            max={30000}
+            unit="ms"
+            onChange={(v) => update((c) => { c.monitors.dns.timeout = v; })}
+          />
+
+          <div>
+            <label className="block text-sm text-gray-400 mb-2">Test domains</label>
+            <div className="space-y-2">
+              {config.monitors.dns.testDomains.map((domain, index) => (
+                <div key={index} className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={domain}
+                    onChange={(e) =>
+                      update((c) => {
+                        c.monitors.dns.testDomains[index] = e.target.value.trim();
+                      })
+                    }
+                    placeholder="example.com"
+                    className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded"
+                  />
+                  {config.monitors.dns.testDomains.length > 1 && (
+                    <button
+                      onClick={() =>
+                        update((c) => {
+                          c.monitors.dns.testDomains.splice(index, 1);
+                        })
+                      }
+                      className="px-3 py-2 text-red-400 hover:bg-red-900/30 rounded"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+              {config.monitors.dns.testDomains.length < 10 && (
+                <button
+                  onClick={() => update((c) => { c.monitors.dns.testDomains.push(''); })}
+                  className="text-sm text-blue-400 hover:text-blue-300"
+                >
+                  + Add Domain
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card title="Outage Detection">
+        <div className="space-y-4">
+          <NumberField
+            label="Consecutive ping failures to declare an outage"
+            value={config.outageDetection.pingFailuresForOutage}
+            min={1}
+            max={20}
+            unit="failures"
+            onChange={(v) => update((c) => { c.outageDetection.pingFailuresForOutage = v; })}
+          />
+          <NumberField
+            label="Consecutive ping successes to declare recovery"
+            value={config.outageDetection.pingSuccessesForRecovery}
+            min={1}
+            max={20}
+            unit="successes"
+            onChange={(v) => update((c) => { c.outageDetection.pingSuccessesForRecovery = v; })}
+          />
         </div>
       </Card>
 

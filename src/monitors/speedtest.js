@@ -62,6 +62,23 @@ function detectEngine() {
   return state.enginePromise;
 }
 
+// Nearby servers from the Ookla CLI, for the settings server picker.
+// speedtest-cli (Python) has no equivalent JSON listing, so return [] there.
+async function listServers() {
+  if ((await detectEngine()) !== 'ookla') return [];
+  const { stdout } = await execFileAsync(
+    'speedtest',
+    ['--accept-license', '--accept-gdpr', '--servers', '--format=json'],
+    { timeout: 30000 }
+  );
+  return (JSON.parse(stdout).servers || []).map((s) => ({
+    id: String(s.id),
+    name: s.name,
+    location: s.location,
+    country: s.country,
+  }));
+}
+
 // Run the Ookla CLI with JSONL output, emitting live progress via onProgress
 function runOoklaCli(serverId = null, onProgress = null) {
   return new Promise((resolve) => {
@@ -362,6 +379,7 @@ function getJobStatus(jobId) {
 }
 
 module.exports = {
+  listServers,
   runSpeedtestCli,
   runSpeedtestCliWithRetry,
   runSpeedtestMonitor,

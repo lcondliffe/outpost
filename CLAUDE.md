@@ -7,7 +7,7 @@ Outpost is a self-hosted, Docker-based home network health monitor. It continuou
 ## Tech Stack
 
 - **Frontend:** Next.js 15 (App Router), React 19, TypeScript 5.7, Tailwind CSS 3.4, Chart.js 4.4
-- **Backend:** Node.js 20+, Express-less HTTP server (native `http` + Next.js handler), SQLite via better-sqlite3
+- **Backend:** Node.js 22+, Express-less HTTP server (native `http` + Next.js handler), SQLite via better-sqlite3
 - **Scheduling:** node-cron for periodic monitoring tasks
 - **Containerization:** Docker (Node 22-alpine, multi-stage build)
 - **CI/CD:** GitHub Actions → GitHub Container Registry (ghcr.io)
@@ -70,10 +70,10 @@ npm run dev       # Start development server (node server.js)
 npm run build     # Build Next.js for production (next build)
 npm start         # Start production server (NODE_ENV=production node server.js)
 npm run lint      # Run ESLint via Next.js (next lint)
-npm test          # Alerting tests (node --test src/alerts.test.js)
+npm test          # Run unit tests (node:test, test/**/*.test.js)
 ```
 
-`npm test` runs the alerting tests (`node --test`, no framework). There are no other automated tests.
+Tests use Node's built-in `node:test` + `node:assert` (no extra deps). Start each test file with `require('./setup')`, which points `OUTPOST_DATA_DIR` at a temp dir so config and SQLite are isolated; each file runs in its own process.
 
 ## Architecture
 
@@ -159,7 +159,7 @@ GitHub Actions pipeline (`.github/workflows/ci.yml`) triggers on pushes to `main
 1. **version** — Determines semantic version via GitVersion or tag parsing
 2. **dependency-audit** — `npm audit` + Snyk vulnerability scan
 3. **secret-scan** — Gitleaks secret detection
-4. **build-scan-push** — Docker build, Trivy image scan, push to ghcr.io (skipped on PRs)
+4. **build-scan-push** — Docker build, Trivy image scan + smoke test (amd64), multi-arch (amd64 + arm64) build pushed to ghcr.io (push skipped on PRs)
 
 ## Docker
 

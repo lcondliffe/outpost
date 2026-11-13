@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const { runPingMonitor } = require('./monitors/ping');
 const { runDnsMonitor } = require('./monitors/dns');
 const { runSpeedtestMonitor } = require('./monitors/speedtest');
+const { runWanIpMonitor } = require('./monitors/wanip');
 const { checkOutageConditions } = require('./monitors/outage');
 const db = require('./storage/database');
 const alerts = require('./alerts');
@@ -68,6 +69,14 @@ async function runSpeedtest() {
   }
 }
 
+async function runWanIp() {
+  try {
+    await runWanIpMonitor();
+  } catch (err) {
+    console.error('WAN IP monitor error:', err.message);
+  }
+}
+
 async function runRetention() {
   try {
     const config = getConfig();
@@ -122,6 +131,12 @@ function startScheduler() {
 
     // Run speedtest 30 seconds after start (to not block startup)
     setTimeout(runSpeedtest, 30000);
+  }
+
+  // Schedule WAN IP tracking (opt-in; older config files lack this block)
+  if (config.monitors.wanIp?.enabled) {
+    scheduledTasks.push(every(config.monitors.wanIp.intervalSeconds * 1000, runWanIp));
+    runWanIp();
   }
 
   // Schedule daily retention cleanup at 3:00 AM

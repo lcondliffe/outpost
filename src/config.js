@@ -32,6 +32,11 @@ const DEFAULT_CONFIG = {
       testDomains: ['google.com', 'cloudflare.com'],
       timeout: 5000,
     },
+    // Off by default: writes your public IP to disk.
+    wanIp: {
+      enabled: process.env.OUTPOST_WAN_IP_ENABLED === 'true',
+      intervalSeconds: parseInt(process.env.OUTPOST_WAN_IP_INTERVAL, 10) || 300,
+    },
   },
   outageDetection: {
     pingFailuresForOutage: 3,

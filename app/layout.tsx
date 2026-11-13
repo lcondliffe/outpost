@@ -21,6 +21,9 @@ export default function RootLayout({
         <div className="fixed inset-0 z-[-1] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-gray-950/50 to-gray-950 pointer-events-none" />
         <Navigation />
         <main className="container mx-auto px-4 py-6 relative">{children}</main>
+        <footer className="container mx-auto px-4 pb-6 text-xs text-gray-600">
+          Outpost v{process.env.APP_VERSION} ({process.env.GIT_SHA})
+        </footer>
       </body>
     </html>
   );

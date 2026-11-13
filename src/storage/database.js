@@ -82,6 +82,15 @@ function getDb() {
       notes TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_outages_start ON outages(start_time);
+
+    -- Public (WAN) IP changes; a row is written only when the IP changes
+    CREATE TABLE IF NOT EXISTS wan_ip_changes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp INTEGER NOT NULL,
+      ip TEXT NOT NULL,
+      previous_ip TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_wan_ip_timestamp ON wan_ip_changes(timestamp);
   `);
 
   // Migration: failure detail for speedtest results (added after initial release)
@@ -238,6 +247,17 @@ function getDb() {
   stmts.getRecentOutages = dbInstance.prepare(`
     SELECT * FROM outages
     ORDER BY start_time DESC
+    LIMIT ?
+  `);
+
+  // WAN IP changes
+  stmts.insertWanIp = dbInstance.prepare(`
+    INSERT INTO wan_ip_changes (timestamp, ip, previous_ip) VALUES (?, ?, ?)
+  `);
+
+  stmts.getWanIpChanges = dbInstance.prepare(`
+    SELECT * FROM wan_ip_changes
+    ORDER BY timestamp DESC, id DESC
     LIMIT ?
   `);
 
@@ -422,6 +442,20 @@ module.exports = {
   getRecentOutages: (limit = 10) => {
     getDb();
     return stmts.getRecentOutages.all(limit);
+  },
+
+  // WAN IP
+  insertWanIp: (data) => {
+    getDb();
+    return stmts.insertWanIp.run(data.timestamp, data.ip, data.previousIp || null);
+  },
+  getWanIpChanges: (limit = 50) => {
+    getDb();
+    return stmts.getWanIpChanges.all(limit);
+  },
+  getLatestWanIp: () => {
+    getDb();
+    return stmts.getWanIpChanges.get(1);
   },
 
   // Stats

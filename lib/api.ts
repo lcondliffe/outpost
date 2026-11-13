@@ -120,6 +120,13 @@ export interface SpeedtestJob {
   completedAt?: number;
 }
 
+export interface WanIpChange {
+  id: number;
+  timestamp: number;
+  ip: string;
+  previous_ip: string | null;
+}
+
 export interface OutageStatus {
   inOutage: boolean;
   activeOutage: {
@@ -219,6 +226,9 @@ export const api = {
   },
   getRecentOutages: (limit = 10) =>
     fetchApi<Outage[]>(`/api/outages/recent?limit=${limit}`),
+
+  // WAN IP
+  getWanIp: () => fetchApi<{ enabled: boolean; changes: WanIpChange[] }>('/api/wanip'),
 
   // Stats
   getStats: (period = '24h') => fetchApi<Stats>(`/api/stats?period=${period}`),

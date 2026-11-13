@@ -4,13 +4,14 @@ import { useState, useEffect, useCallback } from 'react';
 import Card from '@/components/ui/Card';
 import TimeRangeSelect from '@/components/ui/TimeRangeSelect';
 import ExportButtons from '@/components/ui/ExportButtons';
-import { api, getPeriodMs, Outage, formatDuration } from '@/lib/api';
+import { api, getPeriodMs, Outage, WanIpChange, formatDuration } from '@/lib/api';
 
 export default function OutagesPage() {
   const [timeRange, setTimeRange] = useState('30d');
   const [outages, setOutages] = useState<Outage[]>([]);
   const [range, setRange] = useState<{ start: number; end: number } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [wanIp, setWanIp] = useState<{ enabled: boolean; changes: WanIpChange[] } | null>(null);
 
   const fetchData = useCallback(async () => {
     const now = Date.now();
@@ -19,6 +20,7 @@ export default function OutagesPage() {
     setOutages(data);
     setRange({ start, end: now });
     setLoading(false);
+    api.getWanIp().then(setWanIp).catch(() => setWanIp(null));
   }, [timeRange]);
 
   useEffect(() => {
@@ -163,6 +165,39 @@ export default function OutagesPage() {
           </div>
         )}
       </Card>
+
+      {wanIp?.enabled && (
+        <Card title="Public IP">
+          {wanIp.changes.length > 0 ? (
+            <div className="space-y-3">
+              <div>
+                <div className="text-sm text-gray-400 mb-1">Current</div>
+                <div className="text-2xl font-bold font-mono">{wanIp.changes[0].ip}</div>
+              </div>
+              <table className="w-full text-sm">
+                <thead className="text-gray-400 text-left">
+                  <tr>
+                    <th className="py-1 font-normal">Changed</th>
+                    <th className="py-1 font-normal">From</th>
+                    <th className="py-1 font-normal">To</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {wanIp.changes.map((c) => (
+                    <tr key={c.id} className="border-t border-gray-800">
+                      <td className="py-1">{new Date(c.timestamp).toLocaleString()}</td>
+                      <td className="py-1 font-mono text-gray-400">{c.previous_ip ?? '—'}</td>
+                      <td className="py-1 font-mono">{c.ip}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-gray-500 text-center py-4">No public IP recorded yet</div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }

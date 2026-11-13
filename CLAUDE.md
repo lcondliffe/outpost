@@ -48,7 +48,8 @@ outpost/
 │   │   ├── ping.js         # ICMP ping monitor
 │   │   ├── dns.js          # DNS resolution monitor
 │   │   ├── speedtest.js    # Speedtest-cli wrapper
-│   │   └── outage.js       # Outage detection state machine
+│   │   ├── outage.js       # Outage detection state machine
+│   │   └── wanip.js        # Public IP change tracking (opt-in)
 │   └── storage/
 │       └── database.js     # SQLite database layer with prepared statements
 ├── server.js               # Application entry point (HTTP server + scheduler)
@@ -106,7 +107,7 @@ The application starts from `server.js`, which creates a native HTTP server, ini
 
 ### Database
 
-SQLite with four main tables: `ping_results`, `speedtest_results`, `dns_results`, `outages`. All indexed on timestamp. Uses WAL mode for concurrent read/write access. Transactions used for bulk retention cleanup.
+SQLite with five main tables: `ping_results`, `speedtest_results`, `dns_results`, `outages`, `wan_ip_changes`. All indexed on timestamp. Uses WAL mode for concurrent read/write access. Transactions used for bulk retention cleanup.
 
 ## Code Conventions
 
@@ -149,6 +150,8 @@ SQLite with four main tables: `ping_results`, `speedtest_results`, `dns_results`
 | `OUTPOST_SPEEDTEST_INTERVAL` | `1` | Speedtest frequency in hours (1–24) |
 | `OUTPOST_DNS_INTERVAL` | `300` | DNS check frequency in seconds (60–1800) |
 | `OUTPOST_RETENTION_DAYS` | `90` | Data retention period in days (7–365) |
+| `OUTPOST_WAN_IP_ENABLED` | `false` | Track public IP changes (opt-in; writes your IP to disk) |
+| `OUTPOST_WAN_IP_INTERVAL` | `300` | Public IP check frequency in seconds |
 | `HOSTNAME` | `0.0.0.0` | Server bind address |
 
 ## CI/CD Pipeline

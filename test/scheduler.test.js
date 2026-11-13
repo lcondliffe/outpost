@@ -1,3 +1,4 @@
+require('./setup');
 const { test, mock } = require('node:test');
 const assert = require('node:assert');
 const { every, msUntilMinute } = require('../src/scheduler');

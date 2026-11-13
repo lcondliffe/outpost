@@ -199,7 +199,7 @@ docker compose restart
 ## Development
 
 ### Prerequisites
-- Node.js 20+
+- Node.js 22+
 - npm
 
 ### Local Development
@@ -228,7 +228,7 @@ npm start
 ## Architecture
 
 ### Backend
-- **Runtime**: Node.js 20
+- **Runtime**: Node.js 22
 - **Framework**: Fastify
 - **Database**: better-sqlite3
 - **Scheduler**: node-cron

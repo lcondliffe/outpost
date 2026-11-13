@@ -5,6 +5,7 @@ const { runSpeedtestMonitor } = require('./monitors/speedtest');
 const { runWanIpMonitor } = require('./monitors/wanip');
 const { checkOutageConditions } = require('./monitors/outage');
 const db = require('./storage/database');
+const alerts = require('./alerts');
 const { getConfig, reloadConfig } = require('./config');
 
 let scheduledTasks = [];
@@ -45,6 +46,7 @@ async function runPingAndCheckOutage() {
   try {
     lastPingResults = await runPingMonitor();
     checkOutageConditions(lastPingResults, lastDnsResults);
+    await alerts.onPingResults(lastPingResults);
   } catch (err) {
     console.error('Ping monitor error:', err);
   }

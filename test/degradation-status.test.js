@@ -5,7 +5,9 @@ const db = require('../src/storage/database');
 const { updateConfig, reloadConfig } = require('../src/config');
 const { packetCounts } = require('../src/monitors/ping');
 const { checkOutageConditions, getOutageStatus, resetCounters } = require('../src/monitors/outage');
-const { getDegradationStatus, resetDegradationState } = require('../src/monitors/degradation');
+const {
+  getDegradationStatus, advanceDegradationState, resetDegradationState,
+} = require('../src/monitors/degradation');
 
 const A = { host: '192.0.2.10', name: 'Target A' };
 const B = { host: '198.51.100.20', name: 'Target B' };
@@ -118,7 +120,7 @@ test('outage precedence and the existing outage state machine are unchanged', ()
   assert.strictEqual(getDegradationStatus(now).state, 'healthy');
 });
 
-test('hysteresis state carries between evaluations through the shared module state', () => {
+test('hysteresis state is advanced by the scheduler path only', () => {
   updateConfig({ degradation: { recoveryLossThresholdPercent: 2 } });
   reloadConfig();
   try {
@@ -131,20 +133,54 @@ test('hysteresis state carries between evaluations through the shared module sta
       }
     };
     fourPct(0);
-    assert.strictEqual(getDegradationStatus(now).state, 'healthy');
+    assert.strictEqual(advanceDegradationState(now).state, 'healthy');
 
     // One heavy check on both targets a minute later tips the window over 5%.
     store(A, -1, { sent: 10, received: 0 });
     store(B, -1, { sent: 10, received: 0 });
-    assert.strictEqual(getDegradationStatus(now + MIN).state, 'degraded');
+    assert.strictEqual(advanceDegradationState(now + MIN).state, 'degraded');
 
     // Thirty minutes on, the heavy check has aged out and the window is back to 4%:
     // still degraded, because 4% is over the 2% recovery threshold.
     fourPct(-31);
-    assert.strictEqual(getDegradationStatus(now + 31 * MIN).state, 'degraded');
+    const t2 = now + 31 * MIN;
+    assert.strictEqual(getDegradationStatus(t2).state, 'degraded');
+    assert.strictEqual(advanceDegradationState(t2).state, 'degraded');
     // Without the remembered state the same window is healthy.
     resetDegradationState();
-    assert.strictEqual(getDegradationStatus(now + 31 * MIN).state, 'healthy');
+    assert.strictEqual(getDegradationStatus(t2).state, 'healthy');
+  } finally {
+    updateConfig({ degradation: { recoveryLossThresholdPercent: null } });
+    reloadConfig();
+  }
+});
+
+test('API reads are side-effect free: repeated GETs never change the outcome', () => {
+  updateConfig({ degradation: { recoveryLossThresholdPercent: 2 } });
+  reloadConfig();
+  try {
+    // Scheduler: a heavy window makes the state degraded and remembers it.
+    for (let k = 0; k < 30; k++) {
+      store(A, k, { sent: 10, received: k < 12 ? 7 : 10 }); // 36 of 300 = 12%
+      store(B, k, { sent: 10, received: k < 12 ? 7 : 10 });
+    }
+    assert.strictEqual(advanceDegradationState(now).state, 'degraded');
+
+    // Later, the window is 4%: held degraded by hysteresis (2% recovery threshold).
+    for (let k = 0; k < 30; k++) {
+      store(A, -31 + k, { sent: 10, received: k < 12 ? 9 : 10 });
+      store(B, -31 + k, { sent: 10, received: k < 12 ? 9 : 10 });
+    }
+    const t2 = now + 31 * MIN;
+    const first = getDegradationStatus(t2);
+    assert.strictEqual(first.state, 'degraded');
+
+    // Reads that would decide differently (no data far in the future: insufficient)
+    // must not reset the remembered state for later reads.
+    for (let i = 0; i < 5; i++) {
+      assert.strictEqual(getDegradationStatus(t2 + 24 * 60 * MIN).state, 'insufficient');
+      assert.deepStrictEqual(getDegradationStatus(t2), first);
+    }
   } finally {
     updateConfig({ degradation: { recoveryLossThresholdPercent: null } });
     reloadConfig();

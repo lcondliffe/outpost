@@ -16,6 +16,8 @@
 
 const STATES = ['healthy', 'degraded', 'outage', 'insufficient'];
 
+const DEFAULT_INTERVAL_MS = 60_000;
+
 const DEFAULT_POLICY = {
   windowMinutes: 30,
   lossThresholdPercent: 5,
@@ -26,15 +28,38 @@ const DEFAULT_POLICY = {
   staleAfterIntervals: 3,
 };
 
-function normalizePolicy(raw = {}) {
+// Allowed ranges, shared with config validation (src/config.js CONSTRAINTS).
+// recoveryLossThresholdPercent is bounded by lossThresholdPercent instead.
+const POLICY_RANGES = {
+  windowMinutes: { min: 5, max: 240, integer: true },
+  lossThresholdPercent: { min: 0, max: 100 },
+  minTargets: { min: 1, max: 10, integer: true },
+  minCoverage: { min: 0.1, max: 1 },
+  staleAfterIntervals: { min: 1, max: 20, integer: true },
+};
+
+function inRange(value, { min, max, integer = false }) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
+    && (!integer || Number.isInteger(value));
+}
+
+// Config values can arrive unvalidated (env overrides, a hand-edited
+// config.json), so any value that is missing, not a number or out of range
+// falls back to its default rather than being trusted. Without this,
+// minTargets 0 would report degraded forever and a negative threshold would
+// degrade on any loss.
+function normalizePolicy(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
   const policy = { ...DEFAULT_POLICY };
-  for (const key of Object.keys(DEFAULT_POLICY)) {
-    if (raw[key] !== undefined && raw[key] !== null) policy[key] = raw[key];
+  for (const [key, range] of Object.entries(POLICY_RANGES)) {
+    if (inRange(source[key], range)) policy[key] = source[key];
   }
-  // The recovery threshold can never be above the entry threshold: clamp it.
-  if (policy.recoveryLossThresholdPercent == null || policy.recoveryLossThresholdPercent > policy.lossThresholdPercent) {
-    policy.recoveryLossThresholdPercent = policy.lossThresholdPercent;
-  }
+  // Recovery: null (no hysteresis) or 0..entry threshold. Anything else,
+  // including a value above the entry threshold, means no hysteresis.
+  const recovery = source.recoveryLossThresholdPercent;
+  policy.recoveryLossThresholdPercent = inRange(recovery, { min: 0, max: policy.lossThresholdPercent })
+    ? recovery
+    : policy.lossThresholdPercent;
   return policy;
 }
 
@@ -66,6 +91,9 @@ function evaluateDegradation({
   pingEnabled = true,
 }) {
   const policy = normalizePolicy(rawPolicy);
+  // The ping interval is validated elsewhere, but never let a bad one (0,
+  // negative, NaN) make every target stale or every window "covered".
+  if (!(Number.isFinite(intervalMs) && intervalMs > 0)) intervalMs = DEFAULT_INTERVAL_MS;
   const windowMs = policy.windowMinutes * 60_000;
   const windowStart = now - windowMs;
   const expectedSamples = Math.max(1, Math.floor(windowMs / intervalMs));
@@ -160,9 +188,11 @@ function evaluateDegradation({
 
 // Last decision, for hysteresis. On globalThis for the same reason as the
 // outage counters: server.js and each bundled API route load separate copies.
+// Only advanceDegradationState() (the scheduler, after each ping run) writes
+// it; read paths such as /api/status and /api/metrics never do.
 const state = globalThis.__outpostDegradationState ??= { previousState: null };
 
-function getDegradationStatus(now = Date.now()) {
+function evaluateFromStore(now) {
   // Required lazily so the pure function above has no DB/config dependency.
   const db = require('../storage/database');
   const { getConfig } = require('../config');
@@ -176,7 +206,7 @@ function getDegradationStatus(now = Date.now()) {
     sent: r.packets_sent,
     received: r.packets_received,
   }));
-  const result = evaluateDegradation({
+  return evaluateDegradation({
     samples,
     targets: ping.targets || [],
     now,
@@ -186,6 +216,18 @@ function getDegradationStatus(now = Date.now()) {
     previousState: state.previousState,
     pingEnabled: ping.enabled !== false,
   });
+}
+
+// Read-only: evaluates against the remembered state without changing it, so
+// any number of API reads give the same answer as the scheduler would.
+function getDegradationStatus(now = Date.now()) {
+  return evaluateFromStore(now);
+}
+
+// The only writer of the hysteresis state. Called by the scheduler once per
+// ping run, after the new checks are stored.
+function advanceDegradationState(now = Date.now()) {
+  const result = evaluateFromStore(now);
   state.previousState = result.state;
   return result;
 }
@@ -254,9 +296,11 @@ function degradationMetrics(status) {
 module.exports = {
   STATES,
   DEFAULT_POLICY,
+  POLICY_RANGES,
   normalizePolicy,
   evaluateDegradation,
   getDegradationStatus,
+  advanceDegradationState,
   resetDegradationState,
   degradationMetrics,
 };

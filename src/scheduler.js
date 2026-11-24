@@ -4,7 +4,7 @@ const { runDnsMonitor } = require('./monitors/dns');
 const { runSpeedtestMonitor } = require('./monitors/speedtest');
 const { runWanIpMonitor } = require('./monitors/wanip');
 const { checkOutageConditions } = require('./monitors/outage');
-const { getDegradationStatus } = require('./monitors/degradation');
+const { advanceDegradationState } = require('./monitors/degradation');
 const db = require('./storage/database');
 const alerts = require('./alerts');
 const { getConfig, reloadConfig } = require('./config');
@@ -51,10 +51,10 @@ async function runPingAndCheckOutage() {
   } catch (err) {
     console.error('Ping monitor error:', err);
   }
-  // Re-evaluate after every check so recovery hysteresis tracks the data even
-  // when nothing polls /api/status or /api/metrics. Read-only; no alerts.
+  // Advance the degradation state after every check: the only writer of its
+  // hysteresis memory (API reads never change it). No alerts.
   try {
-    getDegradationStatus();
+    advanceDegradationState();
   } catch (err) {
     console.error('Degradation evaluation error:', err);
   }

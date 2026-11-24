@@ -154,6 +154,13 @@ check that got some replies still counts its lost packets.
   smooths single bad checks. After an outage ends, its lost packets stay in the
   window, so the state can read `degraded` until they age out.
 
+Settings saved through the API are validated. A value from an env override or
+a hand-edited `config.json` that is out of range (for example `minTargets: 0`
+or a negative threshold) is ignored and its default is used.
+
+The state is advanced once per ping run by the scheduler; reading
+`/api/status` or `/api/metrics` never changes it.
+
 The defaults mirror a homelab Prometheus rule: over 5% loss over 30 minutes on
 two independent public targets. This status is not alerted on. The existing
 `alerts.packetLossThresholdPercent` notification is a separate, per-check rule.

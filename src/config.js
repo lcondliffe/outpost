@@ -1,6 +1,7 @@
 const fs = require('fs');
 const net = require('net');
 const path = require('path');
+const { POLICY_RANGES } = require('./monitors/degradation');
 
 const DATA_DIR = process.env.OUTPOST_DATA_DIR || './data';
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
@@ -118,13 +119,10 @@ const CONSTRAINTS = {
   retention: {
     days: { min: 7, max: 365 },
   },
-  degradation: {
-    windowMinutes: { min: 5, max: 240 },
-    lossThresholdPercent: { min: 0, max: 100 },
-    minTargets: { min: 1, max: 10 },
-    minCoverage: { min: 0.1, max: 1 },
-    staleAfterIntervals: { min: 1, max: 20 },
-  },
+  // Same bounds normalizePolicy() falls back on (src/monitors/degradation.js).
+  degradation: Object.fromEntries(
+    Object.entries(POLICY_RANGES).map(([key, { min, max }]) => [key, { min, max }])
+  ),
   alerts: {
     cooldownMinutes: { min: 1, max: 1440 },
     speedtestConsecutive: { min: 1, max: 20 },

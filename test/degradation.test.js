@@ -40,6 +40,58 @@ describe('policy defaults', () => {
   test('a recovery threshold above the entry threshold is clamped to it', () => {
     assert.strictEqual(normalizePolicy({ lossThresholdPercent: 4, recoveryLossThresholdPercent: 9 }).recoveryLossThresholdPercent, 4);
   });
+
+  test('unvalidated values fall back to the defaults (env, hand-edited config.json)', () => {
+    const d = normalizePolicy();
+    const bad = {
+      windowMinutes: [0, -30, 4, 241, 30.5, NaN, '30', Infinity],
+      lossThresholdPercent: [-1, 100.1, NaN, '5', Infinity],
+      minTargets: [0, -1, 11, 1.5, NaN, '2'],
+      minCoverage: [0, 0.05, 1.1, -0.5, NaN, '0.9'],
+      staleAfterIntervals: [0, -3, 21, 2.5, NaN],
+    };
+    for (const [key, values] of Object.entries(bad)) {
+      for (const value of values) {
+        assert.strictEqual(normalizePolicy({ [key]: value })[key], d[key], `${key}=${String(value)}`);
+      }
+    }
+    for (const value of [-1, NaN, '2', 6]) {
+      const p = normalizePolicy({ lossThresholdPercent: 5, recoveryLossThresholdPercent: value });
+      assert.strictEqual(p.recoveryLossThresholdPercent, 5, `recovery=${String(value)}`);
+    }
+    assert.deepStrictEqual(normalizePolicy(null), d);
+    assert.deepStrictEqual(normalizePolicy('nonsense'), d);
+  });
+
+  test('valid edge values are kept as given', () => {
+    const p = normalizePolicy({
+      windowMinutes: 5, lossThresholdPercent: 0, recoveryLossThresholdPercent: 0,
+      minTargets: 1, minCoverage: 1, staleAfterIntervals: 20,
+    });
+    assert.deepStrictEqual(p, {
+      windowMinutes: 5, lossThresholdPercent: 0, recoveryLossThresholdPercent: 0,
+      minTargets: 1, minCoverage: 1, staleAfterIntervals: 20,
+    });
+    assert.strictEqual(normalizePolicy({ lossThresholdPercent: 100 }).lossThresholdPercent, 100);
+  });
+
+  test('minTargets 0 or a negative threshold can no longer force degraded', () => {
+    // Clean data on two targets: these policies used to report degraded.
+    const clean = [...checks(A), ...checks(B)];
+    assert.strictEqual(evaluate(clean, { policy: { minTargets: 0 } }).state, 'healthy');
+    const oneLost = { lost: (i) => (i === 0 ? 1 : 0) }; // 1 of 90 = 1.1%
+    assert.strictEqual(evaluate([...checks(A, oneLost), ...checks(B, oneLost)], { policy: { lossThresholdPercent: -5 } }).state, 'healthy');
+    // And no data stays insufficient rather than degraded.
+    assert.strictEqual(evaluate([], { policy: { minTargets: 0 } }).state, 'insufficient');
+  });
+
+  test('a bad ping interval falls back to 60 s instead of skewing coverage', () => {
+    for (const intervalMs of [0, -60_000, NaN, undefined]) {
+      const r = evaluate([...checks(A), ...checks(B)], { intervalMs });
+      assert.strictEqual(r.state, 'healthy', `intervalMs=${String(intervalMs)}`);
+      assert.strictEqual(r.targets[0].expectedSamples, 30);
+    }
+  });
 });
 
 describe('evaluateDegradation', () => {

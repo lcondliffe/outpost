@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import packageJson from '@/package.json';
 import db from '@/src/storage/database';
+import { getDegradationStatus, degradationMetrics } from '@/src/monitors/degradation';
 
 const CONTENT_TYPE = 'text/plain; version=0.0.4; charset=utf-8';
 
@@ -169,6 +170,22 @@ function buildMetricsResponse() {
   lines.push(metricLine('outpost_outage_active', activeOutage ? 1 : 0));
   lines.push(metricLine('outpost_outages_total', outageStats.total_outages));
   lines.push(metricLine('outpost_downtime_seconds_total', outageStats.total_downtime_seconds));
+
+  // WAN degradation from windowed ping packet counts (AGT-422). An evaluation
+  // error drops only these series, not the rest of the scrape.
+  let degradationSeries: ReturnType<typeof degradationMetrics> = [];
+  try {
+    degradationSeries = degradationMetrics(getDegradationStatus());
+  } catch (error) {
+    console.error('Error evaluating degradation metrics:', error);
+  }
+  for (const series of degradationSeries) {
+    lines.push(`# HELP ${series.name} ${series.help}`);
+    lines.push(`# TYPE ${series.name} ${series.type}`);
+    for (const sample of series.samples) {
+      lines.push(metricLine(series.name, sample.value, sample.labels));
+    }
+  }
 
   // Build info
   lines.push('# HELP outpost_build_info Outpost build information');

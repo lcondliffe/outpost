@@ -4,6 +4,7 @@ const { runDnsMonitor } = require('./monitors/dns');
 const { runSpeedtestMonitor } = require('./monitors/speedtest');
 const { runWanIpMonitor } = require('./monitors/wanip');
 const { checkOutageConditions } = require('./monitors/outage');
+const { getDegradationStatus } = require('./monitors/degradation');
 const db = require('./storage/database');
 const alerts = require('./alerts');
 const { getConfig, reloadConfig } = require('./config');
@@ -49,6 +50,13 @@ async function runPingAndCheckOutage() {
     await alerts.onPingResults(lastPingResults);
   } catch (err) {
     console.error('Ping monitor error:', err);
+  }
+  // Re-evaluate after every check so recovery hysteresis tracks the data even
+  // when nothing polls /api/status or /api/metrics. Read-only; no alerts.
+  try {
+    getDegradationStatus();
+  } catch (err) {
+    console.error('Degradation evaluation error:', err);
   }
 }
 

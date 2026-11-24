@@ -137,6 +137,45 @@ export interface OutageStatus {
   } | null;
   consecutivePingFailures: number;
   consecutivePingSuccesses: number;
+  degradation?: DegradationStatus | null;
+}
+
+export type DegradationState = 'healthy' | 'degraded' | 'outage' | 'insufficient';
+
+export interface DegradationTarget {
+  target: string;
+  name: string;
+  samples: number;
+  expectedSamples: number;
+  coverage: number;
+  sent: number;
+  received: number;
+  lossRatio: number | null;
+  lastSampleAt: number | null;
+  stale: boolean;
+  covered: boolean;
+  overThreshold: boolean;
+}
+
+export interface DegradationStatus {
+  state: DegradationState;
+  reason:
+    | 'active_outage'
+    | 'ping_disabled'
+    | 'too_few_targets'
+    | 'insufficient_coverage'
+    | 'loss_over_threshold'
+    | 'loss_within_threshold';
+  evaluatedAt: number;
+  windowSeconds: number;
+  lossThresholdPercent: number;
+  recoveryLossThresholdPercent: number;
+  minTargets: number;
+  minCoverage: number;
+  coveredTargets: number;
+  degradedTargets: number;
+  windowLossRatio: number | null;
+  targets: DegradationTarget[];
 }
 
 export interface SpeedtestServer {

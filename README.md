@@ -72,6 +72,9 @@ Note: Bridge network mode may slightly affect latency measurements.
 - `OUTPOST_SPEEDTEST_INTERVAL`: Speedtest interval in hours (default: 1)
 - `OUTPOST_DNS_INTERVAL`: DNS check interval in seconds (default: 300)
 - `OUTPOST_RETENTION_DAYS`: Data retention period (default: 90)
+- `OUTPOST_DEGRADATION_WINDOW_MINUTES`: WAN degradation window in minutes (default: 30)
+- `OUTPOST_DEGRADATION_LOSS_PERCENT`: Window packet loss above which a target counts as degraded (default: 5; decimals allowed)
+- `OUTPOST_DEGRADATION_MIN_TARGETS`: How many covered targets must each exceed the loss threshold (default: 2)
 
 ### Configuration File
 
@@ -107,11 +110,53 @@ Default configuration:
       "testDomains": ["google.com", "cloudflare.com"]
     }
   },
+  "degradation": {
+    "windowMinutes": 30,
+    "lossThresholdPercent": 5,
+    "recoveryLossThresholdPercent": null,
+    "minTargets": 2,
+    "minCoverage": 0.9,
+    "staleAfterIntervals": 3
+  },
   "retention": {
     "days": 90
   }
 }
 ```
+
+### WAN Degradation
+
+Outpost classifies the connection as `healthy`, `degraded`, `outage` or
+`insufficient` from the packet counts of the ping checks it already runs. It
+sends no extra traffic. Each check stores packets sent and received, so a
+check that got some replies still counts its lost packets.
+
+- **Window loss** per target = (sent − received) / sent, summed over the last
+  `windowMinutes`.
+- **degraded**: at least `minTargets` covered targets each lost **more than**
+  `lossThresholdPercent` (exactly 5.0% is not degraded). Loss on one target
+  alone is not WAN degradation.
+- **insufficient**: fewer than `minTargets` targets are covered. A target is
+  covered when its newest check is no older than `staleAfterIntervals` ping
+  intervals and it has at least `minCoverage` of the expected checks in the
+  window (30 at a 60 s interval, so 27 at 0.9). Missing or stale data is never
+  reported as healthy. Checks stored before packet counts existed (older
+  versions) are not counted.
+- **outage**: an outage is active. The existing outage detection is unchanged
+  and always takes precedence.
+- **Startup**: the state is `insufficient` until coverage is reached (about 27
+  minutes at the defaults) and is decided from then on. There is no extra
+  hold time on top of the window.
+- **Recovery**: the state leaves `degraded` when fewer than `minTargets`
+  covered targets are over the threshold. Set `recoveryLossThresholdPercent`
+  below `lossThresholdPercent` to require loss to fall further before
+  recovering. `null` means no extra hysteresis. The rolling window already
+  smooths single bad checks. After an outage ends, its lost packets stay in the
+  window, so the state can read `degraded` until they age out.
+
+The defaults mirror a homelab Prometheus rule: over 5% loss over 30 minutes on
+two independent public targets. This status is not alerted on. The existing
+`alerts.packetLossThresholdPercent` notification is a separate, per-check rule.
 
 ## Web Interface
 
@@ -163,7 +208,7 @@ Default configuration:
 ### Actions
 - `POST /api/speedtest/run` - Trigger manual speedtest
 - `GET /api/speedtest/run/:id` - Check speedtest job status
-- `GET /api/status` - Current outage status
+- `GET /api/status` - Current outage status, plus `degradation` (state, reason, window loss and per-target coverage)
 
 ### Configuration
 - `GET /api/config` - Get current configuration
@@ -173,12 +218,21 @@ Default configuration:
 ### Health
 - `GET /api/health` - Health check endpoint
 
+### Prometheus
+- `GET /api/metrics` - Prometheus text format. WAN degradation series:
+  `outpost_wan_degradation_state{state}` (1 for the current state, 0 for the
+  others), `outpost_wan_window_loss_ratio`, `outpost_wan_window_covered_targets`,
+  `outpost_wan_window_seconds`, `outpost_wan_loss_threshold_ratio`, and per
+  configured ping target `outpost_ping_window_loss_ratio{target,name}` and
+  `outpost_ping_window_coverage_ratio{target,name}`. Loss ratios are omitted
+  when there is no data.
+
 ## Data Storage
 
 All data is stored in a single SQLite database at `/data/outpost.db`.
 
 ### Tables
-- `ping_results` - Latency measurements
+- `ping_results` - Latency measurements and ICMP packets sent/received per check
 - `speedtest_results` - Speed test results
 - `dns_results` - DNS query results
 - `outages` - Outage records

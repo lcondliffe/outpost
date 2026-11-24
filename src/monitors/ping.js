@@ -2,6 +2,28 @@ const ping = require('ping');
 const db = require('../storage/database');
 const { getConfig } = require('../config');
 
+// "3 packets transmitted, 2 received" (iputils) or
+// "3 packets transmitted, 2 packets received" (busybox).
+const COUNTS_RE = /(\d+)\s+packets?\s+transmitted,\s+(\d+)\s+(?:packets?\s+)?received/i;
+
+// Packets sent/received for one check, read from the ping summary line, else
+// derived from the parsed loss percentage and the configured packet count.
+// Returns nulls when neither is known (e.g. the ping itself errored), so the
+// check is not counted as either healthy or lossy (AGT-422).
+function packetCounts(result, packetCount) {
+  const match = typeof result?.output === 'string' ? COUNTS_RE.exec(result.output) : null;
+  if (match) {
+    const sent = parseInt(match[1], 10);
+    const received = parseInt(match[2], 10);
+    if (sent > 0 && received >= 0 && received <= sent) return { packetsSent: sent, packetsReceived: received };
+  }
+  const loss = parseFloat(result?.packetLoss);
+  if (Number.isFinite(loss) && loss >= 0 && loss <= 100 && packetCount > 0) {
+    return { packetsSent: packetCount, packetsReceived: Math.round(packetCount * (1 - loss / 100)) };
+  }
+  return { packetsSent: null, packetsReceived: null };
+}
+
 async function pingHost(host, timeout = 5000) {
   try {
     const config = getConfig();
@@ -18,6 +40,7 @@ async function pingHost(host, timeout = 5000) {
       rttAvg: result.avg !== 'unknown' ? parseFloat(result.avg) : null,
       rttMax: result.max !== 'unknown' ? parseFloat(result.max) : null,
       packetLoss: result.packetLoss !== 'unknown' ? parseFloat(result.packetLoss) : 100,
+      ...packetCounts(result, packetCount),
     };
   } catch (err) {
     console.error(`Ping error for ${host}:`, err.message);
@@ -27,6 +50,8 @@ async function pingHost(host, timeout = 5000) {
       rttAvg: null,
       rttMax: null,
       packetLoss: 100,
+      packetsSent: null,
+      packetsReceived: null,
     };
   }
 }
@@ -54,6 +79,8 @@ async function runPingMonitor() {
       rttMax: result.rttMax,
       packetLoss: result.packetLoss,
       success: result.alive,
+      packetsSent: result.packetsSent,
+      packetsReceived: result.packetsReceived,
     };
 
     db.insertPing(data);
@@ -66,6 +93,7 @@ async function runPingMonitor() {
 }
 
 module.exports = {
+  packetCounts,
   pingHost,
   runPingMonitor,
 };

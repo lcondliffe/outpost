@@ -99,11 +99,30 @@ function getDb() {
     dbInstance.exec('ALTER TABLE speedtest_results ADD COLUMN error TEXT');
   }
 
+  // Migration: ICMP packets sent/received per ping check (AGT-422). NULL on
+  // rows written before this column existed, or when the count was unknown.
+  const pingCols = dbInstance.prepare('PRAGMA table_info(ping_results)').all();
+  if (!pingCols.some((c) => c.name === 'packets_sent')) {
+    dbInstance.exec('ALTER TABLE ping_results ADD COLUMN packets_sent INTEGER');
+  }
+  if (!pingCols.some((c) => c.name === 'packets_received')) {
+    dbInstance.exec('ALTER TABLE ping_results ADD COLUMN packets_received INTEGER');
+  }
+
   // Prepare statements
   // Ping results
   stmts.insertPing = dbInstance.prepare(`
-    INSERT INTO ping_results (timestamp, target, target_name, rtt_min, rtt_avg, rtt_max, packet_loss, success)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO ping_results (timestamp, target, target_name, rtt_min, rtt_avg, rtt_max, packet_loss, success,
+      packets_sent, packets_received)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  // Packet counts for the WAN degradation window (AGT-422). Rows without a
+  // known count are left out: they are not evidence of a healthy network.
+  stmts.getPingCounts = dbInstance.prepare(`
+    SELECT timestamp, target, packets_sent, packets_received FROM ping_results
+    WHERE timestamp >= ? AND timestamp <= ? AND packets_sent IS NOT NULL AND packets_received IS NOT NULL
+    ORDER BY timestamp ASC
   `);
 
   stmts.getPingResults = dbInstance.prepare(`
@@ -348,8 +367,13 @@ module.exports = {
     getDb();
     return stmts.insertPing.run(
       data.timestamp, data.target, data.targetName,
-      data.rttMin, data.rttAvg, data.rttMax, data.packetLoss, data.success ? 1 : 0
+      data.rttMin, data.rttAvg, data.rttMax, data.packetLoss, data.success ? 1 : 0,
+      data.packetsSent ?? null, data.packetsReceived ?? null
     );
+  },
+  getPingCounts: (start, end) => {
+    getDb();
+    return stmts.getPingCounts.all(start, end);
   },
   getPingResults: (start, end, bucket = 0) => {
     getDb();

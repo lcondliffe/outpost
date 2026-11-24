@@ -49,6 +49,7 @@ outpost/
 │   │   ├── dns.js          # DNS resolution monitor
 │   │   ├── speedtest.js    # Speedtest-cli wrapper
 │   │   ├── outage.js       # Outage detection state machine
+│   │   ├── degradation.js  # Windowed packet-loss WAN state (healthy/degraded/outage/insufficient)
 │   │   └── wanip.js        # Public IP change tracking (opt-in)
 │   └── storage/
 │       └── database.js     # SQLite database layer with prepared statements
@@ -152,6 +153,9 @@ SQLite with five main tables: `ping_results`, `speedtest_results`, `dns_results`
 | `OUTPOST_RETENTION_DAYS` | `90` | Data retention period in days (7–365) |
 | `OUTPOST_WAN_IP_ENABLED` | `false` | Track public IP changes (opt-in; writes your IP to disk) |
 | `OUTPOST_WAN_IP_INTERVAL` | `300` | Public IP check frequency in seconds |
+| `OUTPOST_DEGRADATION_WINDOW_MINUTES` | `30` | WAN degradation window in minutes (5–240) |
+| `OUTPOST_DEGRADATION_LOSS_PERCENT` | `5` | Window loss % a target must exceed to count as degraded |
+| `OUTPOST_DEGRADATION_MIN_TARGETS` | `2` | How many covered targets must each exceed the loss threshold (1–10) |
 | `HOSTNAME` | `0.0.0.0` | Server bind address |
 
 ## CI/CD Pipeline

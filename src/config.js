@@ -42,6 +42,17 @@ const DEFAULT_CONFIG = {
     pingFailuresForOutage: 3,
     pingSuccessesForRecovery: 2,
   },
+  // Partial WAN degradation from stored ping packet counts (AGT-422). Read-only
+  // over existing ping checks: no extra probes. Defaults match the homelab
+  // HomeWANPacketLoss rule: over 5% loss over 30 minutes on 2 targets.
+  degradation: {
+    windowMinutes: 30,
+    lossThresholdPercent: 5,
+    recoveryLossThresholdPercent: null,
+    minTargets: 2,
+    minCoverage: 0.9,
+    staleAfterIntervals: 3,
+  },
   retention: {
     days: 90,
   },
@@ -61,18 +72,22 @@ const DEFAULT_CONFIG = {
 };
 
 // Env vars always win over config.json (applied on every load, never persisted).
+// Integer unless a parser is given.
 const ENV_OVERRIDES = [
   ['OUTPOST_PING_INTERVAL', ['monitors', 'ping', 'intervalSeconds']],
   ['OUTPOST_SPEEDTEST_INTERVAL', ['monitors', 'speedtest', 'intervalHours']],
   ['OUTPOST_DNS_INTERVAL', ['monitors', 'dns', 'intervalSeconds']],
   ['OUTPOST_RETENTION_DAYS', ['retention', 'days']],
   ['OUTPOST_PORT', ['server', 'port']],
+  ['OUTPOST_DEGRADATION_WINDOW_MINUTES', ['degradation', 'windowMinutes']],
+  ['OUTPOST_DEGRADATION_LOSS_PERCENT', ['degradation', 'lossThresholdPercent'], parseFloat],
+  ['OUTPOST_DEGRADATION_MIN_TARGETS', ['degradation', 'minTargets']],
 ];
 
 function applyEnvOverrides(config) {
   let result = config;
-  for (const [name, keys] of ENV_OVERRIDES) {
-    const val = parseInt(process.env[name], 10);
+  for (const [name, keys, parse = (v) => parseInt(v, 10)] of ENV_OVERRIDES) {
+    const val = parse(process.env[name]);
     if (Number.isNaN(val)) continue;
     result = deepMerge(result, keys.reduceRight((acc, key) => ({ [key]: acc }), val));
   }
@@ -102,6 +117,13 @@ const CONSTRAINTS = {
   },
   retention: {
     days: { min: 7, max: 365 },
+  },
+  degradation: {
+    windowMinutes: { min: 5, max: 240 },
+    lossThresholdPercent: { min: 0, max: 100 },
+    minTargets: { min: 1, max: 10 },
+    minCoverage: { min: 0.1, max: 1 },
+    staleAfterIntervals: { min: 1, max: 20 },
   },
   alerts: {
     cooldownMinutes: { min: 1, max: 1440 },
@@ -220,6 +242,26 @@ function validateConfig(config) {
     const val = config.retention.days;
     if (val < CONSTRAINTS.retention.days.min || val > CONSTRAINTS.retention.days.max) {
       errors.push(`Retention must be between ${CONSTRAINTS.retention.days.min} and ${CONSTRAINTS.retention.days.max} days`);
+    }
+  }
+
+  const deg = config.degradation;
+  const degRanges = CONSTRAINTS.degradation;
+  checkInt(errors, deg?.windowMinutes, degRanges.windowMinutes, 'Degradation window (minutes)');
+  checkInt(errors, deg?.minTargets, degRanges.minTargets, 'Degradation minimum targets');
+  checkInt(errors, deg?.staleAfterIntervals, degRanges.staleAfterIntervals, 'Degradation stale-after intervals');
+  for (const [key, label] of [['lossThresholdPercent', 'loss threshold (%)'], ['minCoverage', 'minimum coverage']]) {
+    const val = deg?.[key];
+    const range = degRanges[key];
+    if (val !== undefined && !(typeof val === 'number' && val >= range.min && val <= range.max)) {
+      errors.push(`Degradation ${label} must be a number between ${range.min} and ${range.max}`);
+    }
+  }
+  const recovery = deg?.recoveryLossThresholdPercent;
+  if (recovery !== undefined && recovery !== null) {
+    const ceiling = typeof deg.lossThresholdPercent === 'number' ? deg.lossThresholdPercent : 100;
+    if (!(typeof recovery === 'number' && recovery >= 0 && recovery <= ceiling)) {
+      errors.push('Degradation recovery loss threshold (%) must be null or a number from 0 to the loss threshold');
     }
   }
 

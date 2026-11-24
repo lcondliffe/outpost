@@ -13,7 +13,8 @@ fs.writeFileSync(file, JSON.stringify({ monitors: { ping: { intervalSeconds: 120
 process.env.OUTPOST_DATA_DIR = dir;
 process.env.OUTPOST_DEGRADATION_LOSS_PERCENT = '7.5';
 
-const { getConfig, updateConfig, validateConfig, DEFAULT_CONFIG } = require('../src/config');
+const { getConfig, updateConfig, validateConfig, DEFAULT_CONFIG, CONSTRAINTS } = require('../src/config');
+const { POLICY_RANGES } = require('../src/monitors/degradation');
 
 test('defaults match the homelab rule', () => {
   assert.deepStrictEqual(DEFAULT_CONFIG.degradation, {
@@ -58,4 +59,10 @@ test('validation rejects out-of-range degradation settings', () => {
   assert.deepStrictEqual(bad({ lossThresholdPercent: 5, recoveryLossThresholdPercent: 2 }), []);
   assert.strictEqual(bad({ lossThresholdPercent: 5, recoveryLossThresholdPercent: 6 }).length, 1);
   assert.throws(() => updateConfig({ degradation: { minTargets: 99 } }), /Invalid configuration/);
+});
+
+test('config validation and the runtime fallback use the same bounds', () => {
+  for (const [key, { min, max }] of Object.entries(POLICY_RANGES)) {
+    assert.deepStrictEqual(CONSTRAINTS.degradation[key], { min, max }, key);
+  }
 });

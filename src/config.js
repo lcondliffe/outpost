@@ -9,7 +9,7 @@ const DEFAULT_CONFIG = {
   monitors: {
     ping: {
       enabled: true,
-      intervalSeconds: parseInt(process.env.OUTPOST_PING_INTERVAL, 10) || 60,
+      intervalSeconds: 60,
       targets: [
         { host: '8.8.8.8', name: 'Google DNS' },
         { host: '1.1.1.1', name: 'Cloudflare DNS' },
@@ -19,12 +19,12 @@ const DEFAULT_CONFIG = {
     },
     speedtest: {
       enabled: true,
-      intervalHours: parseInt(process.env.OUTPOST_SPEEDTEST_INTERVAL, 10) || 1,
+      intervalHours: 1,
       serverId: null,
     },
     dns: {
       enabled: true,
-      intervalSeconds: parseInt(process.env.OUTPOST_DNS_INTERVAL, 10) || 300,
+      intervalSeconds: 300,
       servers: [
         { address: '8.8.8.8', name: 'Google' },
         { address: '1.1.1.1', name: 'Cloudflare' },
@@ -32,18 +32,52 @@ const DEFAULT_CONFIG = {
       testDomains: ['google.com', 'cloudflare.com'],
       timeout: 5000,
     },
+    // Off by default: writes your public IP to disk.
+    wanIp: {
+      enabled: process.env.OUTPOST_WAN_IP_ENABLED === 'true',
+      intervalSeconds: parseInt(process.env.OUTPOST_WAN_IP_INTERVAL, 10) || 300,
+    },
   },
   outageDetection: {
     pingFailuresForOutage: 3,
     pingSuccessesForRecovery: 2,
   },
   retention: {
-    days: parseInt(process.env.OUTPOST_RETENTION_DAYS, 10) || 90,
+    days: 90,
+  },
+  alerts: {
+    webhookUrl: '',
+    ntfyUrl: '',
+    cooldownMinutes: 30,
+    speedtestFloorMbps: 0,
+    speedtestConsecutive: 3,
+    latencyThresholdMs: 0,
+    packetLossThresholdPercent: 0,
+    degradedChecks: 5,
   },
   server: {
-    port: parseInt(process.env.OUTPOST_PORT, 10) || 3000,
+    port: 3000,
   },
 };
+
+// Env vars always win over config.json (applied on every load, never persisted).
+const ENV_OVERRIDES = [
+  ['OUTPOST_PING_INTERVAL', ['monitors', 'ping', 'intervalSeconds']],
+  ['OUTPOST_SPEEDTEST_INTERVAL', ['monitors', 'speedtest', 'intervalHours']],
+  ['OUTPOST_DNS_INTERVAL', ['monitors', 'dns', 'intervalSeconds']],
+  ['OUTPOST_RETENTION_DAYS', ['retention', 'days']],
+  ['OUTPOST_PORT', ['server', 'port']],
+];
+
+function applyEnvOverrides(config) {
+  let result = config;
+  for (const [name, keys] of ENV_OVERRIDES) {
+    const val = parseInt(process.env[name], 10);
+    if (Number.isNaN(val)) continue;
+    result = deepMerge(result, keys.reduceRight((acc, key) => ({ [key]: acc }), val));
+  }
+  return result;
+}
 
 // Configuration constraints
 const CONSTRAINTS = {
@@ -69,7 +103,26 @@ const CONSTRAINTS = {
   retention: {
     days: { min: 7, max: 365 },
   },
+  alerts: {
+    cooldownMinutes: { min: 1, max: 1440 },
+    speedtestConsecutive: { min: 1, max: 20 },
+    degradedChecks: { min: 1, max: 60 },
+  },
 };
+
+// Webhook URLs carry their secret in the URL itself, so they are never
+// returned in full from the API. The UI round-trips this placeholder for
+// "unchanged".
+const SECRET_FIELDS = ['webhookUrl', 'ntfyUrl'];
+const SECRET_MASK = '********';
+
+function redactConfig(config) {
+  const alerts = { ...config.alerts };
+  for (const key of SECRET_FIELDS) {
+    if (alerts[key]) alerts[key] = SECRET_MASK;
+  }
+  return { ...config, alerts };
+}
 
 // RFC 1123 hostname (labels of letters/digits/hyphens, no leading/trailing hyphen)
 const HOSTNAME_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i;
@@ -170,6 +223,27 @@ function validateConfig(config) {
     }
   }
 
+  for (const key of SECRET_FIELDS) {
+    const val = config.alerts?.[key];
+    if (val && !/^https?:\/\/\S+$/.test(val)) {
+      errors.push(`Alert ${key} must be an http(s) URL`);
+    }
+  }
+
+  for (const [key, range] of Object.entries(CONSTRAINTS.alerts)) {
+    const val = config.alerts?.[key];
+    if (val !== undefined && !(val >= range.min && val <= range.max)) {
+      errors.push(`Alert ${key} must be between ${range.min} and ${range.max}`);
+    }
+  }
+
+  for (const key of ['speedtestFloorMbps', 'latencyThresholdMs', 'packetLossThresholdPercent']) {
+    const val = config.alerts?.[key];
+    if (val !== undefined && !(val >= 0)) {
+      errors.push(`Alert ${key} must be 0 (off) or a positive number`);
+    }
+  }
+
   return errors;
 }
 
@@ -185,7 +259,8 @@ function deepMerge(target, source) {
   return result;
 }
 
-function loadConfig() {
+// Persisted config (defaults + config.json), without env overrides.
+function loadFileConfig() {
   // Ensure data directory exists
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -207,6 +282,10 @@ function loadConfig() {
   return { ...DEFAULT_CONFIG };
 }
 
+function loadConfig() {
+  return applyEnvOverrides(loadFileConfig());
+}
+
 function saveConfig(config) {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -215,7 +294,15 @@ function saveConfig(config) {
 }
 
 function updateConfig(partialConfig) {
-  const currentConfig = loadConfig();
+  // Persisted config only: env overrides are applied on load, never saved (AGT-409).
+  const currentConfig = loadFileConfig();
+  // A masked secret coming back from the UI means "keep the current value".
+  if (partialConfig.alerts) {
+    partialConfig = { ...partialConfig, alerts: { ...partialConfig.alerts } };
+    for (const key of SECRET_FIELDS) {
+      if (partialConfig.alerts[key] === SECRET_MASK) delete partialConfig.alerts[key];
+    }
+  }
   const newConfig = deepMerge(currentConfig, partialConfig);
 
   const errors = validateConfig(newConfig);
@@ -224,12 +311,12 @@ function updateConfig(partialConfig) {
   }
 
   saveConfig(newConfig);
-  return newConfig;
+  return applyEnvOverrides(newConfig);
 }
 
 function resetConfig() {
   saveConfig(DEFAULT_CONFIG);
-  return { ...DEFAULT_CONFIG };
+  return applyEnvOverrides(DEFAULT_CONFIG);
 }
 
 // Export singleton config instance
@@ -248,11 +335,13 @@ function reloadConfig() {
 }
 
 module.exports = {
+  loadConfig,
   getConfig,
   reloadConfig,
   updateConfig,
   resetConfig,
   validateConfig,
+  redactConfig,
   DEFAULT_CONFIG,
   CONSTRAINTS,
 };

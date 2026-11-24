@@ -19,7 +19,7 @@ export interface PingResult {
   rtt_avg: number | null;
   rtt_max: number | null;
   packet_loss: number;
-  success: number;
+  success: number; // 0/1 raw; 0..1 fraction when the API downsamples long ranges
 }
 
 export interface SpeedtestResult {
@@ -42,7 +42,9 @@ export interface DnsResult {
   server_name: string;
   query_domain: string;
   response_time_ms: number | null;
-  success: number;
+  response_time_min?: number | null; // downsampled rows only
+  response_time_max?: number | null;
+  success: number; // 0/1 raw; 0..1 fraction when the API downsamples long ranges
 }
 
 export interface Outage {
@@ -118,6 +120,13 @@ export interface SpeedtestJob {
   completedAt?: number;
 }
 
+export interface WanIpChange {
+  id: number;
+  timestamp: number;
+  ip: string;
+  previous_ip: string | null;
+}
+
 export interface OutageStatus {
   inOutage: boolean;
   activeOutage: {
@@ -165,6 +174,16 @@ export interface Config {
   };
   retention: {
     days: number;
+  };
+  alerts: {
+    webhookUrl: string;
+    ntfyUrl: string;
+    cooldownMinutes: number;
+    speedtestFloorMbps: number;
+    speedtestConsecutive: number;
+    latencyThresholdMs: number;
+    packetLossThresholdPercent: number;
+    degradedChecks: number;
   };
   server: {
     port: number;
@@ -218,6 +237,9 @@ export const api = {
   getRecentOutages: (limit = 10) =>
     fetchApi<Outage[]>(`/api/outages/recent?limit=${limit}`),
 
+  // WAN IP
+  getWanIp: () => fetchApi<{ enabled: boolean; changes: WanIpChange[] }>('/api/wanip'),
+
   // Stats
   getStats: (period = '24h') => fetchApi<Stats>(`/api/stats?period=${period}`),
 
@@ -237,6 +259,14 @@ export const api = {
     }).then((r) => r.json()),
   resetConfig: () =>
     fetch(`/api/config/reset`, { method: 'POST' }).then((r) => r.json()),
+
+  // Alerts
+  sendTestAlert: () =>
+    fetch(`/api/alerts/test`, { method: 'POST' }).then((r) => r.json()) as Promise<{
+      success: boolean;
+      error?: string;
+      results?: Array<{ sink: string; ok: boolean; error?: string }>;
+    }>,
 
   // Health
   getHealth: () => fetchApi<{ status: string; version: string; uptime: number }>('/api/health'),

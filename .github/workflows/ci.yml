@@ -101,6 +101,9 @@ jobs:
   dependency-audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
+    # Secrets can't be referenced in step `if:`, so expose it via job env.
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -120,11 +123,14 @@ jobs:
       - name: Run npm audit
         run: npm audit --audit-level=high --omit=dev
 
+      - name: Snyk skipped (SNYK_TOKEN not set)
+        if: env.SNYK_TOKEN == ''
+        run: echo "::warning title=Snyk skipped::SNYK_TOKEN secret is not set, so no Snyk scan ran. Add the repository secret to enable it."
+
       - name: Run Snyk to check for vulnerabilities
+        if: env.SNYK_TOKEN != ''
         uses: snyk/actions/node@master
         continue-on-error: true
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           args: --severity-threshold=high
 
